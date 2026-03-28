@@ -1,12 +1,12 @@
 name = "github-file-manager"
 main = "index.js"
-compatibility_date = "2025-07-18"
+compatibility_date = "2024-01-01"
 
 # 环境变量配置
 [vars]
-GITHUB_TOKEN = "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"
-GITHUB_OWNER = "belugaQAQ"
-GITHUB_REPO = "WanWanCraft"
+GITHUB_TOKEN = "ghp_token"
+GITHUB_OWNER = "github_username"
+GITHUB_REPO = "repo"
 GITHUB_BRANCH = "main"
 GITHUB_PATH1 = "public/assets/gallery-images"
 GITHUB_PATH1_NAME = "相册"
@@ -22,8 +22,8 @@ GITHUB_PATH6 = "src/config"
 GITHUB_PATH6_NAME = "页面配置"
 
 # 登录认证配置
-LOGIN_USERNAME = "classisband"
-LOGIN_PASSWORD = "2441500679@qq.com"
+LOGIN_USERNAME = "admin"
+LOGIN_PASSWORD = "password123"
 
 # 会话配置（可选）
 SESSION_SECRET = "your-secret-key-here"
