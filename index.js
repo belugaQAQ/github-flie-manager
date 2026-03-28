@@ -39,9 +39,12 @@ function getPathConfig(env) {
   return paths;
 }
 
-// 简单的会话管理（使用Cookie）
+// 会话存储（使用内存存储，生产环境建议使用 KV）
+const sessions = new Map();
+
+// 生成会话令牌
 function generateSessionToken() {
-  return Math.random().toString(36).substring(2) + Date.now().toString(36);
+  return crypto.randomUUID();
 }
 
 // 验证会话
@@ -55,24 +58,47 @@ function verifySession(request, env) {
   }));
   
   const sessionToken = cookies.get('session_token');
-  const expectedToken = env.SESSION_SECRET || 'default-session-secret';
+  if (!sessionToken) return false;
   
-  return sessionToken === expectedToken;
+  const sessionData = sessions.get(sessionToken);
+  return sessionData && sessionData.expires > Date.now();
 }
 
 // 设置会话Cookie
-function setSessionCookie(response, env) {
-  const sessionToken = env.SESSION_SECRET || 'default-session-secret';
+function setSessionCookie(response, env, username) {
+  const sessionToken = generateSessionToken();
   const maxAge = parseInt(env.SESSION_MAX_AGE) || 3600;
   
-  response.headers.set('Set-Cookie', `session_token=${sessionToken}; Max-Age=${maxAge}; HttpOnly; Path=/`);
+  sessions.set(sessionToken, {
+    username: username,
+    expires: Date.now() + maxAge * 1000
+  });
+  
+  response.headers.set('Set-Cookie', `session_token=${sessionToken}; Max-Age=${maxAge}; HttpOnly; Path=/; SameSite=Lax`);
   return response;
 }
 
 // 清除会话Cookie
-function clearSessionCookie(response) {
-  response.headers.set('Set-Cookie', 'session_token=; Max-Age=0; HttpOnly; Path=/');
+function clearSessionCookie(response, request) {
+  const cookieHeader = request.headers.get('Cookie');
+  if (cookieHeader) {
+    const cookies = new Map(cookieHeader.split(';').map(c => {
+      const [key, value] = c.trim().split('=');
+      return [key, value];
+    }));
+    const sessionToken = cookies.get('session_token');
+    if (sessionToken) {
+      sessions.delete(sessionToken);
+    }
+  }
+  
+  response.headers.set('Set-Cookie', 'session_token=; Max-Age=0; HttpOnly; Path=/; SameSite=Lax');
   return response;
+}
+
+// 统一的文件路径编码函数
+function encodeGitHubPath(filePath) {
+  return filePath.split('/').map(encodeURIComponent).join('/');
 }
 
 // 登录页面HTML
@@ -82,126 +108,196 @@ function getLoginHTML(error = '') {
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>GitHub文件管理器 - 登录</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, shrink-to-fit=no"/>
+    <meta name="renderer" content="webkit"/>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/mdui/2.1.4/mdui.css" />
+    <link href="https://fonts.googleapis.com/icon?family=Material+Icons+Outlined" rel="stylesheet" />
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/mdui/2.1.4/mdui.global.js"></script>
     <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { 
-            font-family: Arial, sans-serif; 
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        :root {
+            --md-sys-color-primary: #1e40af;
+            --md-sys-color-primary-container: #dbeafe;
+            --md-sys-color-secondary: #374151;
+            --md-sys-color-secondary-container: #e5e7eb;
+            --md-sys-color-error: #b91c1c;
+            --md-sys-color-error-container: #fef2f2;
+            --md-sys-color-background: #f8fafc;
+            --md-sys-color-surface: #ffffff;
+            --md-sys-color-surface-variant: #f1f5f9;
+            --md-sys-color-on-primary: #ffffff;
+            --md-sys-color-on-secondary: #ffffff;
+            --md-sys-color-on-error: #ffffff;
+            --md-sys-color-on-background: #1e293b;
+            --md-sys-color-on-surface: #1e293b;
+            --md-sys-color-on-surface-variant: #475569;
+        }
+        
+        body {
             min-height: 100vh;
             display: flex;
             align-items: center;
             justify-content: center;
+            background: #1e40af;
+            margin: 0;
+            font-family: 'Roboto', 'Helvetica', 'Arial', sans-serif;
         }
+        
         .login-container {
-            background: white;
-            padding: 40px;
-            border-radius: 10px;
-            box-shadow: 0 15px 35px rgba(0,0,0,0.1);
             width: 100%;
-            max-width: 400px;
+            max-width: 420px;
+            background: var(--md-sys-color-surface);
+            border-radius: 24px;
+            box-shadow: 0 10px 50px rgba(0,0,0,0.15);
+            overflow: hidden;
+            transition: all 0.3s ease;
         }
+        
+        .login-container:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 15px 60px rgba(0,0,0,0.2);
+        }
+        
         .login-header {
+            background: var(--md-sys-color-primary);
+            color: var(--md-sys-color-on-primary);
+            padding: 40px 32px;
             text-align: center;
-            margin-bottom: 30px;
+            position: relative;
         }
-        .login-header h1 {
-            color: #333;
-            margin-bottom: 10px;
-        }
-        .login-header p {
-            color: #666;
-            font-size: 14px;
-        }
-        .form-group {
+        
+        .logo {
             margin-bottom: 20px;
+            display: flex;
+            justify-content: center;
         }
-        .form-group label {
-            display: block;
-            margin-bottom: 5px;
-            color: #333;
-            font-weight: bold;
+        
+        .logo-icon {
+            background: var(--md-sys-color-primary-container);
+            color: var(--md-sys-color-primary);
+            border-radius: 50%;
+            padding: 16px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
         }
-        .form-group input {
-            width: 100%;
-            padding: 12px;
-            border: 2px solid #ddd;
-            border-radius: 5px;
-            font-size: 16px;
-            transition: border-color 0.3s;
+        
+        .login-body {
+            padding: 32px;
         }
-        .form-group input:focus {
-            outline: none;
-            border-color: #667eea;
-        }
+        
         .error-message {
-            color: #e74c3c;
-            font-size: 14px;
-            margin-bottom: 15px;
+            margin-bottom: 24px;
+        }
+        
+        .form-group {
+            margin-bottom: 24px;
+        }
+        
+        .form-actions {
+            margin-top: 32px;
+        }
+        
+        .footer {
             text-align: center;
-            display: ${error ? 'block' : 'none'};
+            margin-top: 24px;
+            font-size: 14px;
+            color: var(--md-sys-color-on-surface-variant);
         }
-        .login-btn {
-            width: 100%;
-            padding: 12px;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            border: none;
-            border-radius: 5px;
-            font-size: 16px;
-            cursor: pointer;
-            transition: transform 0.2s;
-        }
-        .login-btn:hover {
-            transform: translateY(-2px);
-        }
-        .login-btn:active {
-            transform: translateY(0);
+        
+        @media (max-width: 480px) {
+            .login-container {
+                margin: 20px;
+                border-radius: 20px;
+            }
+            
+            .login-header {
+                padding: 32px 24px;
+            }
+            
+            .login-body {
+                padding: 24px;
+            }
         }
     </style>
+    <title>GitHub文件管理器 - 登录</title>
 </head>
 <body>
     <div class="login-container">
         <div class="login-header">
-            <h1>GitHub文件管理器</h1>
-            <p>请输入用户名和密码登录系统</p>
+            <div class="logo">
+                <div class="logo-icon">
+                    <mdui-icon name="lock--outlined" size="48px"></mdui-icon>
+                </div>
+            </div>
+            <h1 class="mdui-typo-headline-medium">GitHub文件管理器</h1>
+            <p class="mdui-typo-body-1">请输入用户名和密码登录系统</p>
         </div>
         
-        <div class="error-message" id="errorMessage">${error}</div>
+        ${error ? `<mdui-alert type="error" class="error-message">${error}</mdui-alert>` : ''}
         
-        <form id="loginForm" method="POST" action="/api/login">
-            <div class="form-group">
-                <label for="username">用户名</label>
-                <input type="text" id="username" name="username" required>
-            </div>
-            
-            <div class="form-group">
-                <label for="password">密码</label>
-                <input type="password" id="password" name="password" required>
-            </div>
-            
-            <button type="submit" class="login-btn">登录</button>
-        </form>
+        <div class="login-body">
+            <form id="loginForm" method="POST" action="/api/login">
+                <div class="form-group">
+                    <mdui-text-field 
+                        label="用户名" 
+                        type="text" 
+                        name="username" 
+                        id="username" 
+                        required
+                        variant="outlined"
+                    >
+                        <mdui-icon slot="icon" name="person--outlined"></mdui-icon>
+                    </mdui-text-field>
+                </div>
+                <div class="form-group">
+                    <mdui-text-field 
+                        label="密码" 
+                        type="password" 
+                        name="password" 
+                        id="password" 
+                        required
+                        variant="outlined"
+                    >
+                        <mdui-icon slot="icon" name="lock--outlined"></mdui-icon>
+                    </mdui-text-field>
+                </div>
+                <div class="form-actions">
+                    <mdui-button 
+                        type="submit" 
+                        variant="filled" 
+                        color="primary" 
+                        full-width
+                        size="large"
+                    >
+                        <mdui-icon slot="icon" name="login--outlined"></mdui-icon>
+                        登录
+                    </mdui-button>
+                </div>
+                <div class="footer">
+                    <p>© 2026 GitHub文件管理器</p>
+                </div>
+            </form>
+        </div>
     </div>
     
     <script>
-        // 显示错误信息
-        const errorMessage = '${error}';
-        if (errorMessage) {
-            document.getElementById('errorMessage').style.display = 'block';
-        }
-        
-        // 表单提交处理
         document.getElementById('loginForm').addEventListener('submit', function(e) {
             const username = document.getElementById('username').value;
             const password = document.getElementById('password').value;
             
             if (!username || !password) {
                 e.preventDefault();
-                alert('请输入用户名和密码');
+                mdui.snackbar({
+                    message: '请输入用户名和密码',
+                    type: 'error',
+                    position: 'top'
+                });
             }
         });
+        
+        window.onload = function() {
+            document.getElementById('username').focus();
+        };
     </script>
 </body>
 </html>
@@ -223,14 +319,12 @@ async function handleLogin(request, env) {
     const expectedPassword = env.LOGIN_PASSWORD || 'password123';
     
     if (username === expectedUsername && password === expectedPassword) {
-      // 登录成功，设置会话Cookie并重定向到主页
       const response = new Response(null, {
         status: 302,
         headers: { 'Location': '/' }
       });
-      return setSessionCookie(response, env);
+      return setSessionCookie(response, env, username);
     } else {
-      // 登录失败，返回登录页面并显示错误信息
       return new Response(getLoginHTML('用户名或密码错误'), {
         status: 401,
         headers: { 'Content-Type': 'text/html; charset=utf-8' }
@@ -250,7 +344,1633 @@ async function handleLogout(request, env) {
     status: 302,
     headers: { 'Location': '/login' }
   });
-  return clearSessionCookie(response);
+  return clearSessionCookie(response, request);
+}
+
+// 获取文件列表
+async function getFiles(env, pathConfig) {
+  try {
+    const { GITHUB_TOKEN, GITHUB_OWNER, GITHUB_REPO, GITHUB_BRANCH } = env;
+    const path = pathConfig.path || '';
+    
+    // 编码路径
+    const encodedPath = encodeGitHubPath(path);
+    const url = `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/contents/${encodedPath}?ref=${GITHUB_BRANCH}`;
+    
+    const response = await fetch(url, {
+      headers: {
+        'Authorization': `token ${GITHUB_TOKEN}`,
+        'Accept': 'application/vnd.github.v3+json',
+        'User-Agent': 'Cloudflare-Worker'
+      }
+    });
+    
+    if (!response.ok) {
+      const errorText = await response.text();
+      return new Response(JSON.stringify({ 
+        error: `GitHub API错误: ${response.status} - ${errorText}` 
+      }), { 
+        status: response.status,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
+    
+    const files = await response.json();
+    
+    // 过滤出文件（排除文件夹）
+    const fileList = Array.isArray(files) 
+      ? files.filter(item => item.type === 'file').map(item => ({
+          name: item.name,
+          path: item.path,
+          size: item.size,
+          download_url: item.download_url,
+          sha: item.sha
+        }))
+      : [];
+    
+    return new Response(JSON.stringify({ files: fileList }), {
+      headers: { 'Content-Type': 'application/json' }
+    });
+    
+  } catch (error) {
+    console.error('获取文件列表错误:', error);
+    return new Response(JSON.stringify({ 
+      error: `服务器错误: ${error.message}` 
+    }), { 
+      status: 500,
+      headers: { 'Content-Type': 'application/json' }
+    });
+  }
+}
+
+// 上传文件
+async function uploadFile(request, env, pathConfig) {
+  try {
+    const formData = await request.formData();
+    const file = formData.get('file');
+    const filename = formData.get('filename') || file.name;
+    
+    if (!file) {
+      return new Response(JSON.stringify({ error: '未选择文件' }), {
+        status: 400,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
+    
+    // GitHub API 文件大小限制检查
+    const MAX_FILE_SIZE = 25 * 1024 * 1024; // 25MB
+    if (file.size > MAX_FILE_SIZE) {
+      return new Response(JSON.stringify({ 
+        error: '文件大小超过 GitHub API 限制 (25MB)' 
+      }), { 
+        status: 413,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
+    
+    const { GITHUB_TOKEN, GITHUB_OWNER, GITHUB_REPO, GITHUB_BRANCH } = env;
+    const basePath = pathConfig.path || '';
+    const filePath = basePath ? `${basePath}/${filename}` : filename;
+    
+    // 读取文件内容并编码为Base64
+    const arrayBuffer = await file.arrayBuffer();
+    const uint8Array = new Uint8Array(arrayBuffer);
+    let binaryString = '';
+    for (let i = 0; i < uint8Array.length; i++) {
+        binaryString += String.fromCharCode(uint8Array[i]);
+    }
+    const content = btoa(binaryString);
+    
+    // 编码文件路径
+    const encodedFilePath = encodeGitHubPath(filePath);
+    
+    // 检查文件是否已存在
+    const checkUrl = `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/contents/${encodedFilePath}?ref=${GITHUB_BRANCH}`;
+    const checkResponse = await fetch(checkUrl, {
+      headers: {
+        'Authorization': `token ${GITHUB_TOKEN}`,
+        'Accept': 'application/vnd.github.v3+json',
+        'User-Agent': 'Cloudflare-Worker'
+      }
+    });
+    
+    let sha = null;
+    let fileExists = false;
+    if (checkResponse.status === 200) {
+      const existingFile = await checkResponse.json();
+      sha = existingFile.sha;
+      fileExists = true;
+    }
+    
+    // 上传文件
+    const uploadUrl = `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/contents/${encodedFilePath}`;
+    const uploadData = {
+      message: fileExists ? `Update file: ${filename}` : `Upload file: ${filename}`,
+      content: content,
+      branch: GITHUB_BRANCH
+    };
+    
+    if (sha) {
+      uploadData.sha = sha;
+    }
+    
+    const uploadResponse = await fetch(uploadUrl, {
+      method: 'PUT',
+      headers: {
+        'Authorization': `token ${GITHUB_TOKEN}`,
+        'Accept': 'application/vnd.github.v3+json',
+        'Content-Type': 'application/json',
+        'User-Agent': 'Cloudflare-Worker'
+      },
+      body: JSON.stringify(uploadData)
+    });
+    
+    if (!uploadResponse.ok) {
+      const errorData = await uploadResponse.text();
+      return new Response(JSON.stringify({ 
+        error: `上传失败: ${uploadResponse.status} - ${errorData}` 
+      }), { 
+        status: uploadResponse.status,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
+    
+    return new Response(JSON.stringify({ 
+      success: true, 
+      message: fileExists ? '文件更新成功' : '文件上传成功' 
+    }), {
+      headers: { 'Content-Type': 'application/json' }
+    });
+    
+  } catch (error) {
+    console.error('上传文件错误:', error);
+    return new Response(JSON.stringify({ 
+      error: `上传错误: ${error.message}` 
+    }), { 
+      status: 500,
+      headers: { 'Content-Type': 'application/json' }
+    });
+  }
+}
+
+// 删除文件
+async function deleteFile(request, env, pathConfig) {
+  try {
+    const { filePath, sha } = await request.json();
+    
+    if (!filePath || !sha) {
+      return new Response(JSON.stringify({ error: '缺少必要参数' }), {
+        status: 400,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
+    
+    const { GITHUB_TOKEN, GITHUB_OWNER, GITHUB_REPO, GITHUB_BRANCH } = env;
+    
+    // 编码文件路径
+    const encodedFilePath = encodeGitHubPath(filePath);
+    const url = `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/contents/${encodedFilePath}`;
+    
+    const deleteData = {
+      message: `Delete file: ${filePath.split('/').pop()}`,
+      sha: sha,
+      branch: GITHUB_BRANCH
+    };
+    
+    const response = await fetch(url, {
+      method: 'DELETE',
+      headers: {
+        'Authorization': `token ${GITHUB_TOKEN}`,
+        'Accept': 'application/vnd.github.v3+json',
+        'Content-Type': 'application/json',
+        'User-Agent': 'Cloudflare-Worker'
+      },
+      body: JSON.stringify(deleteData)
+    });
+    
+    if (!response.ok) {
+      const errorText = await response.text();
+      return new Response(JSON.stringify({ 
+        error: `删除失败: ${response.status} - ${errorText}` 
+      }), { 
+        status: response.status,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
+    
+    return new Response(JSON.stringify({ 
+      success: true, 
+      message: '文件删除成功' 
+    }), {
+      headers: { 'Content-Type': 'application/json' }
+    });
+    
+  } catch (error) {
+    console.error('删除文件错误:', error);
+    return new Response(JSON.stringify({ 
+      error: `删除错误: ${error.message}` 
+    }), { 
+      status: 500,
+      headers: { 'Content-Type': 'application/json' }
+    });
+  }
+}
+
+// 修改文件
+async function updateFile(request, env, pathConfig) {
+  try {
+    const { filePath, sha, content, message } = await request.json();
+    
+    if (!filePath || !sha || !content) {
+      return new Response(JSON.stringify({ error: '缺少必要参数' }), {
+        status: 400,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
+    
+    const { GITHUB_TOKEN, GITHUB_OWNER, GITHUB_REPO, GITHUB_BRANCH } = env;
+    
+    // 编码文件路径
+    const encodedFilePath = encodeGitHubPath(filePath);
+    const url = `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/contents/${encodedFilePath}`;
+    
+    // 将内容转换为Base64（正确处理中文）
+    const encoder = new TextEncoder();
+    const bytes = encoder.encode(content);
+    let binaryString = '';
+    for (let i = 0; i < bytes.length; i++) {
+        binaryString += String.fromCharCode(bytes[i]);
+    }
+    const contentBase64 = btoa(binaryString);
+    
+    const updateData = {
+      message: message || `Update file: ${filePath.split('/').pop()}`,
+      content: contentBase64,
+      sha: sha,
+      branch: GITHUB_BRANCH
+    };
+    
+    const response = await fetch(url, {
+      method: 'PUT',
+      headers: {
+        'Authorization': `token ${GITHUB_TOKEN}`,
+        'Accept': 'application/vnd.github.v3+json',
+        'Content-Type': 'application/json',
+        'User-Agent': 'Cloudflare-Worker'
+      },
+      body: JSON.stringify(updateData)
+    });
+    
+    if (!response.ok) {
+      const errorText = await response.text();
+      return new Response(JSON.stringify({ 
+        error: `修改失败: ${response.status} - ${errorText}` 
+      }), { 
+        status: response.status,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
+    
+    return new Response(JSON.stringify({ 
+      success: true, 
+      message: '文件修改成功' 
+    }), {
+      headers: { 'Content-Type': 'application/json' }
+    });
+    
+  } catch (error) {
+    console.error('修改文件错误:', error);
+    return new Response(JSON.stringify({ 
+      error: `修改错误: ${error.message}` 
+    }), { 
+      status: 500,
+      headers: { 'Content-Type': 'application/json' }
+    });
+  }
+}
+
+// 下载代理
+async function downloadProxy(request, env) {
+  try {
+    const url = new URL(request.url);
+    const filePath = url.searchParams.get('path');
+    const previewMode = url.searchParams.get('preview') === 'true';
+    
+    if (!filePath) {
+      return new Response('缺少文件路径参数', { status: 400 });
+    }
+    
+    const { GITHUB_TOKEN, GITHUB_OWNER, GITHUB_REPO, GITHUB_BRANCH } = env;
+    
+    // 使用GitHub API获取文件内容
+    const encodedFilePath = encodeGitHubPath(filePath);
+    const apiUrl = `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/contents/${encodedFilePath}?ref=${GITHUB_BRANCH}`;
+    
+    const response = await fetch(apiUrl, {
+      headers: {
+        'Accept': 'application/vnd.github.v3+json',
+        'Authorization': `token ${GITHUB_TOKEN}`,
+        'User-Agent': 'Cloudflare-Worker'
+      }
+    });
+    
+    if (!response.ok) {
+      return new Response(`下载失败: ${response.status}`, { 
+        status: response.status 
+      });
+    }
+    
+    const data = await response.json();
+    
+    if (!data.content) {
+      return new Response('文件内容为空', { status: 404 });
+    }
+    
+    // 根据文件扩展名设置正确的Content-Type
+    const getContentType = (filename) => {
+      const extension = filename.split('.').pop().toLowerCase();
+      const typeMap = {
+        'jpg': 'image/jpeg',
+        'jpeg': 'image/jpeg',
+        'png': 'image/png',
+        'gif': 'image/gif',
+        'bmp': 'image/bmp',
+        'webp': 'image/webp',
+        'svg': 'image/svg+xml',
+        'pdf': 'application/pdf',
+        'txt': 'text/plain',
+        'md': 'text/markdown',
+        'html': 'text/html',
+        'htm': 'text/html',
+        'xml': 'application/xml',
+        'json': 'application/json',
+        'csv': 'text/csv',
+        'log': 'text/plain',
+        'js': 'application/javascript',
+        'css': 'text/css',
+        'py': 'text/x-python',
+        'java': 'text/x-java',
+        'cpp': 'text/x-c++',
+        'c': 'text/x-c'
+      };
+      return typeMap[extension] || 'application/octet-stream';
+    };
+    
+    const filename = filePath.split('/').pop();
+    const contentType = getContentType(filename);
+    
+    // 解码Base64内容
+    const base64Content = data.content.replace(/\s/g, '');
+    const binaryString = atob(base64Content);
+    const bytes = new Uint8Array(binaryString.length);
+    for (let i = 0; i < binaryString.length; i++) {
+      bytes[i] = binaryString.charCodeAt(i);
+    }
+    
+    // 判断是否为文本文件
+    const isTextFile = contentType.startsWith('text/') || 
+                       contentType === 'application/json' ||
+                       contentType === 'application/javascript' ||
+                       contentType === 'text/markdown';
+    
+    let responseContent;
+    if (isTextFile) {
+      // 文本文件：解码为UTF-8字符串
+      const decoder = new TextDecoder('utf-8');
+      responseContent = decoder.decode(bytes);
+    } else {
+      // 二进制文件：直接返回字节数组
+      responseContent = bytes;
+    }
+    
+    // 设置响应头
+    const headers = {
+      'Content-Type': contentType
+    };
+    
+    if (previewMode) {
+      headers['Content-Disposition'] = 'inline';
+    } else {
+      // 使用RFC 5987标准处理中文文件名
+      const encodedFilename = encodeURIComponent(filename);
+      headers['Content-Disposition'] = `attachment; filename="${encodedFilename}"; filename*=UTF-8''${encodedFilename}`;
+    }
+    
+    return new Response(responseContent, { headers });
+    
+  } catch (error) {
+    console.error('下载错误:', error);
+    return new Response(`下载错误: ${error.message}`, { status: 500 });
+  }
+}
+
+// 路径选择界面
+function getPathSelectionHTML(pathConfigs) {
+  return `
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, shrink-to-fit=no"/>
+    <meta name="renderer" content="webkit"/>
+    <link href="https://fonts.googleapis.com/icon?family=Material+Icons+Outlined" rel="stylesheet" />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/mdui/2.1.4/mdui.css" />
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/mdui/2.1.4/mdui.global.js"></script>
+    <title>GitHub文件管理器 - 选择路径</title>
+    <style>
+        :root {
+            --md-sys-color-primary: #1e40af;
+            --md-sys-color-primary-container: #dbeafe;
+            --md-sys-color-secondary: #374151;
+            --md-sys-color-secondary-container: #e5e7eb;
+            --md-sys-color-error: #b91c1c;
+            --md-sys-color-error-container: #fef2f2;
+            --md-sys-color-background: #f8fafc;
+            --md-sys-color-surface: #ffffff;
+            --md-sys-color-surface-variant: #f1f5f9;
+            --md-sys-color-on-primary: #ffffff;
+            --md-sys-color-on-secondary: #ffffff;
+            --md-sys-color-on-error: #ffffff;
+            --md-sys-color-on-background: #1e293b;
+            --md-sys-color-on-surface: #1e293b;
+            --md-sys-color-on-surface-variant: #475569;
+        }
+        
+        body {
+            font-family: 'Roboto', 'Helvetica', 'Arial', sans-serif;
+            line-height: 1.6;
+            color: var(--md-sys-color-on-background);
+            background: #1e40af;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 0;
+        }
+        
+        .container {
+            max-width: 1200px;
+            width: 100%;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        
+        .card {
+            background: var(--md-sys-color-surface);
+            border-radius: 24px;
+            box-shadow: 0 10px 50px rgba(0,0,0,0.15);
+            overflow: hidden;
+        }
+        
+        .card-header {
+            background: var(--md-sys-color-primary);
+            color: var(--md-sys-color-on-primary);
+            padding: 32px;
+            text-align: center;
+            position: relative;
+        }
+        
+        .logout-btn {
+            position: absolute;
+            top: 16px;
+            right: 16px;
+        }
+        
+        .card-body {
+            padding: 40px;
+        }
+        
+        .path-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 24px;
+        }
+        
+        .path-card {
+            background: var(--md-sys-color-surface-variant);
+            padding: 32px;
+            border-radius: 16px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.08);
+            transition: all 0.3s ease;
+            border: 1px solid transparent;
+        }
+        
+        .path-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 8px 25px rgba(0,0,0,0.12);
+            border-color: var(--md-sys-color-primary);
+            background: var(--md-sys-color-secondary-container);
+        }
+        
+        .path-icon {
+            margin-bottom: 20px;
+            display: inline-block;
+            background: var(--md-sys-color-primary-container);
+            color: var(--md-sys-color-primary);
+            border-radius: 12px;
+            padding: 16px;
+        }
+        
+        .path-name {
+            font-weight: 600;
+            margin-bottom: 12px;
+            color: var(--md-sys-color-on-surface);
+        }
+        
+        .path-info {
+            font-size: 14px;
+            color: var(--md-sys-color-on-surface-variant);
+            margin-bottom: 24px;
+        }
+        
+        @media (max-width: 768px) {
+            .card-body {
+                padding: 24px;
+            }
+            
+            .path-grid {
+                grid-template-columns: 1fr;
+            }
+            
+            .path-card {
+                padding: 24px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="card">
+            <div class="card-header">
+                <h1 class="mdui-typo-headline-medium">GitHub文件管理器</h1>
+                <p class="mdui-typo-body-1">请选择要管理的文件夹路径</p>
+                <mdui-button class="logout-btn" variant="outlined" color="error" onclick="logout()">登出</mdui-button>
+            </div>
+            
+            <div class="card-body">
+                <div class="path-grid">
+                    ${pathConfigs.map((config, index) => `
+                        <div class="path-card">
+                            <div class="path-icon">
+                                <mdui-icon name="folder--outlined" size="48px"></mdui-icon>
+                            </div>
+                            <h3 class="mdui-typo-headline-small path-name">${escapeHtml(config.displayName)}</h3>
+                            <p class="mdui-typo-body-2 path-info">路径: ${escapeHtml(config.path || '根目录')}</p>
+                            <mdui-button 
+                                href="/${config.name}" 
+                                variant="filled" 
+                                color="primary"
+                                full-width
+                                size="large"
+                            >
+                                进入管理
+                            </mdui-button>
+                        </div>
+                    `).join('')}
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        function logout() {
+            if (confirm('确定要登出吗？')) {
+                fetch('/api/logout', {
+                    method: 'POST'
+                }).then(() => {
+                    window.location.href = '/login';
+                }).catch(error => {
+                    console.error('登出失败:', error);
+                    window.location.href = '/login';
+                });
+            }
+        }
+    </script>
+</body>
+</html>`;
+}
+
+// HTML转义函数
+function escapeHtml(str) {
+  if (!str) return '';
+  return str.replace(/[&<>]/g, function(m) {
+    if (m === '&') return '&amp;';
+    if (m === '<') return '&lt;';
+    if (m === '>') return '&gt;';
+    return m;
+  });
+}
+
+// 文件管理界面
+function getFileManagerHTML(pathConfig, pathConfigs, env) {
+  const apiBase = '/api/files/' + pathConfig.name;
+  
+  return `
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, shrink-to-fit=no"/>
+    <meta name="renderer" content="webkit"/>
+    <link href="https://fonts.googleapis.com/icon?family=Material+Icons+Outlined" rel="stylesheet" />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/mdui/2.1.4/mdui.css" />
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/mdui/2.1.4/mdui.global.js"></script>
+    <title>GitHub文件管理器 - ${escapeHtml(pathConfig.displayName)}</title>
+    <style>
+        :root {
+            --md-sys-color-primary: #1e40af;
+            --md-sys-color-primary-container: #dbeafe;
+            --md-sys-color-secondary: #374151;
+            --md-sys-color-secondary-container: #e5e7eb;
+            --md-sys-color-error: #b91c1c;
+            --md-sys-color-error-container: #fef2f2;
+            --md-sys-color-background: #f8fafc;
+            --md-sys-color-surface: #ffffff;
+            --md-sys-color-surface-variant: #f1f5f9;
+            --md-sys-color-on-primary: #ffffff;
+            --md-sys-color-on-secondary: #ffffff;
+            --md-sys-color-on-error: #ffffff;
+            --md-sys-color-on-background: #1e293b;
+            --md-sys-color-on-surface: #1e293b;
+            --md-sys-color-on-surface-variant: #475569;
+        }
+        
+        body {
+            font-family: 'Roboto', 'Helvetica', 'Arial', sans-serif;
+            line-height: 1.6;
+            color: var(--md-sys-color-on-background);
+            background: var(--md-sys-color-background);
+            min-height: 100vh;
+            margin: 0;
+            display: flex;
+            flex-direction: column;
+        }
+        
+        .app-container {
+            display: flex;
+            flex: 1;
+            height: calc(100vh - 64px);
+        }
+        
+        .sidebar {
+            width: 280px;
+            background: var(--md-sys-color-surface);
+            border-right: 1px solid var(--md-sys-color-surface-variant);
+            display: flex;
+            flex-direction: column;
+            box-shadow: 0 0 10px rgba(0,0,0,0.05);
+        }
+        
+        .sidebar-header {
+            padding: 24px;
+            border-bottom: 1px solid var(--md-sys-color-surface-variant);
+        }
+        
+        .sidebar-title {
+            font-size: 18px;
+            font-weight: 600;
+            margin-bottom: 8px;
+            color: var(--md-sys-color-on-surface);
+        }
+        
+        .sidebar-subtitle {
+            font-size: 14px;
+            color: var(--md-sys-color-on-surface-variant);
+        }
+        
+        .path-list {
+            flex: 1;
+            overflow-y: auto;
+            padding: 16px;
+        }
+        
+        .path-item {
+            display: block;
+            width: 100%;
+            padding: 12px 16px;
+            margin-bottom: 8px;
+            border-radius: 8px;
+            text-align: left;
+            transition: all 0.2s ease;
+            border: 1px solid transparent;
+        }
+        
+        .path-item:hover {
+            background: var(--md-sys-color-surface-variant);
+        }
+        
+        .path-item.active {
+            background: var(--md-sys-color-primary-container);
+            color: var(--md-sys-color-primary);
+            border-color: var(--md-sys-color-primary);
+        }
+        
+        .sidebar-footer {
+            padding: 16px;
+            border-top: 1px solid var(--md-sys-color-surface-variant);
+        }
+        
+        .main-content {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+        
+        .main-header {
+            background: var(--md-sys-color-surface);
+            padding: 16px 24px;
+            border-bottom: 1px solid var(--md-sys-color-surface-variant);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .main-title {
+            font-size: 20px;
+            font-weight: 600;
+            color: var(--md-sys-color-on-surface);
+        }
+        
+        .header-actions {
+            display: flex;
+            gap: 12px;
+        }
+        
+        .content-area {
+            flex: 1;
+            padding: 24px;
+            overflow-y: auto;
+        }
+        
+        .upload-section {
+            background: var(--md-sys-color-surface);
+            padding: 24px;
+            border-radius: 12px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+            margin-bottom: 24px;
+        }
+        
+        .file-list {
+            background: var(--md-sys-color-surface);
+            border-radius: 12px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+            overflow: hidden;
+        }
+        
+        .progress-container {
+            margin-top: 20px;
+        }
+        
+        .progress-item {
+            margin-bottom: 16px;
+        }
+        
+        .selected-files {
+            margin-top: 20px;
+        }
+        
+        .file-tag {
+            display: inline-block;
+            background: var(--md-sys-color-primary-container);
+            color: var(--md-sys-color-primary);
+            padding: 6px 12px;
+            border-radius: 16px;
+            font-size: 14px;
+            margin-right: 8px;
+            margin-bottom: 8px;
+        }
+        
+        .empty-state {
+            padding: 80px 20px;
+            text-align: center;
+            color: var(--md-sys-color-on-surface-variant);
+        }
+        
+        .empty-state mdui-icon {
+            opacity: 0.5;
+        }
+        
+        .file-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 14px;
+        }
+        
+        .file-table th {
+            background: var(--md-sys-color-surface-variant);
+            padding: 16px 24px;
+            text-align: left;
+            font-weight: 500;
+            color: var(--md-sys-color-on-surface-variant);
+            border-bottom: 1px solid var(--md-sys-color-surface-variant);
+        }
+        
+        .file-table td {
+            padding: 16px 24px;
+            border-bottom: 1px solid var(--md-sys-color-surface-variant);
+            vertical-align: middle;
+        }
+        
+        .file-table tr:hover {
+            background: var(--md-sys-color-surface-variant);
+        }
+        
+        .file-table tr:last-child td {
+            border-bottom: none;
+        }
+        
+        @media (max-width: 768px) {
+            .app-container {
+                flex-direction: column;
+            }
+            
+            .sidebar {
+                width: 100%;
+                height: 200px;
+                border-right: none;
+                border-bottom: 1px solid var(--md-sys-color-surface-variant);
+            }
+            
+            .path-list {
+                padding: 12px;
+            }
+            
+            .path-item {
+                padding: 10px 12px;
+                font-size: 14px;
+            }
+            
+            .main-header {
+                padding: 12px 16px;
+            }
+            
+            .main-title {
+                font-size: 18px;
+            }
+            
+            .content-area {
+                padding: 16px;
+            }
+            
+            .upload-section {
+                padding: 20px;
+            }
+            
+            .header-actions {
+                gap: 8px;
+            }
+            
+            .header-actions mdui-button {
+                font-size: 14px;
+                padding: 6px 12px;
+            }
+        }
+        
+        @media (max-width: 480px) {
+            .sidebar {
+                height: 180px;
+            }
+            
+            .sidebar-header {
+                padding: 16px;
+            }
+            
+            .sidebar-title {
+                font-size: 16px;
+            }
+            
+            .sidebar-subtitle {
+                font-size: 12px;
+            }
+            
+            .path-item {
+                padding: 8px 10px;
+                font-size: 13px;
+            }
+            
+            .main-header {
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 12px;
+            }
+            
+            .header-actions {
+                width: 100%;
+                justify-content: space-between;
+            }
+            
+            .content-area {
+                padding: 12px;
+            }
+            
+            .upload-section {
+                padding: 16px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="app-container">
+        <div style="position: relative; height: 100%;">
+            <mdui-navigation-rail contained divider value="${pathConfig.name}">
+                <div slot="top" style="padding: 16px; text-align: center;">
+                    <div style="font-size: 16px; font-weight: 600; margin-bottom: 4px;">GitHub文件管理器</div>
+                    <div style="font-size: 12px; color: var(--md-sys-color-on-surface-variant);">选择文件夹路径</div>
+                </div>
+                
+                ${pathConfigs.map(config => `
+                    <mdui-navigation-rail-item 
+                        icon="folder--outlined"
+                        value="${config.name}"
+                        href="/${config.name}"
+                    >
+                        ${escapeHtml(config.displayName)}
+                    </mdui-navigation-rail-item>
+                `).join('')}
+                
+                <mdui-button-icon 
+                    icon="logout--outlined" 
+                    slot="bottom" 
+                    color="error"
+                    onclick="if(confirm('确定要登出吗？')) { fetch('/api/logout', { method: 'POST' }).then(() => window.location.href = '/login').catch(() => window.location.href = '/login'); }"
+                    style="margin-bottom: 16px;"></mdui-button-icon>
+            </mdui-navigation-rail>
+        </div>
+        
+        <div class="main-content">
+            <div class="main-header">
+                <div class="main-title">${escapeHtml(pathConfig.displayName)}</div>
+                <div class="header-actions">
+                    <mdui-button variant="outlined" color="primary" onclick="window.location.href='/'">
+                        <mdui-icon slot="icon" name="arrow_back--outlined"></mdui-icon>
+                        返回选择
+                    </mdui-button>
+                </div>
+            </div>
+            
+            <div class="content-area">
+                <div class="upload-section">
+                    <h2 class="mdui-typo-headline-small">上传文件</h2>
+                    <div style="margin-top: 20px; display: flex; gap: 12px; flex-wrap: wrap;">
+                        <mdui-file-picker id="filePicker" multiple accept="*/*" label="选择文件"></mdui-file-picker>
+                        <mdui-button id="uploadBtn" variant="filled" color="primary" onclick="window.uploadFiles()" size="medium">
+                            <mdui-icon slot="icon" name="upload--outlined"></mdui-icon>
+                            开始上传
+                        </mdui-button>
+                        <mdui-button id="refreshBtn" variant="outlined" color="primary" onclick="window.getFileList()" size="medium">
+                            <mdui-icon slot="icon" name="refresh--outlined"></mdui-icon>
+                            刷新文件列表
+                        </mdui-button>
+                    </div>
+                    
+                    <div id="selectedFiles" class="selected-files"></div>
+                    <div id="uploadProgress" class="progress-container"></div>
+                </div>
+                
+                <div class="file-list">
+                    <table class="file-table">
+                        <thead>
+                            <tr>
+                                <th>文件名</th>
+                                <th>大小</th>
+                                <th>操作</th>
+                            </tr>
+                        </thead>
+                        <tbody id="fileTableBody">
+                        </tbody>
+                    </table>
+                    
+                    <div id="emptyState" class="empty-state" style="display: none;">
+                        <mdui-icon name="folder--outlined" size="64px" style="opacity: 0.5;"></mdui-icon>
+                        <p style="margin-top: 20px; font-size: 16px;">当前目录为空</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        const apiBase = '/api/files/${pathConfig.name}';
+        
+        function formatFileSize(bytes) {
+            if (bytes === 0) return '0 B';
+            const k = 1024;
+            const sizes = ['B', 'KB', 'MB', 'GB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+        }
+        
+        function canPreview(filename) {
+            const previewExtensions = [
+                'jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp', 'svg',
+                'pdf', 'txt', 'md', 'html', 'htm', 'xml', 'json', 'csv', 'log',
+                'js', 'css', 'py', 'java', 'cpp', 'c'
+            ];
+            const extension = filename.split('.').pop().toLowerCase();
+            return previewExtensions.includes(extension);
+        }
+        
+        function getFileList() {
+            try {
+                fetch(apiBase)
+                    .then(response => response.json())
+                    .then(data => {
+                        const fileTableBody = document.getElementById('fileTableBody');
+                        const emptyState = document.getElementById('emptyState');
+                        
+                        if (data.files && data.files.length > 0) {
+                            let html = '';
+                            data.files.forEach(function(file) {
+                                const fileSize = formatFileSize(file.size);
+                                const canPreviewFile = canPreview(file.name);
+                                
+                                html += '<tr>';
+                                html += '<td>';
+                                html += '<div style="font-weight: 500;">' + escapeHtml(file.name) + '</div>';
+                                html += '<div style="font-size: 12px; color: var(--md-sys-color-on-surface-variant);">' + escapeHtml(file.path) + '</div>';
+                                html += '</td>';
+                                html += '<td>' + fileSize + '</td>';
+                                html += '<td>';
+                                html += '<div style="display: flex; gap: 8px; flex-wrap: wrap;">';
+                                
+                                const filePath = JSON.stringify(file.path);
+                                const fileName = JSON.stringify(file.name);
+                                const fileSha = JSON.stringify(file.sha);
+                                
+                                if (canPreviewFile) {
+                                    html += '<mdui-button variant="text" color="primary" size="small" onclick="window.previewFile(' + filePath + ', ' + fileName + ')"><mdui-icon slot="icon" name="visibility--outlined"></mdui-icon>查看</mdui-button>';
+                                }
+                                
+                                html += '<mdui-button variant="text" color="primary" size="small" onclick="window.downloadFile(' + filePath + ', ' + fileName + ')"><mdui-icon slot="icon" name="download--outlined"></mdui-icon>下载</mdui-button>';
+                                html += '<mdui-button variant="text" color="error" size="small" onclick="window.deleteFile(' + filePath + ', ' + fileSha + ')"><mdui-icon slot="icon" name="delete--outlined"></mdui-icon>删除</mdui-button>';
+                                
+                                // 文本文件显示编辑按钮
+                                if (canPreviewFile && !file.name.match(/\\.(jpg|jpeg|png|gif|bmp|webp|pdf)$/i)) {
+                                    html += '<mdui-button variant="text" color="primary" size="small" onclick="window.editFile(' + filePath + ', ' + fileSha + ')"><mdui-icon slot="icon" name="edit--outlined"></mdui-icon>编辑</mdui-button>';
+                                }
+                                
+                                html += '</div>';
+                                html += '</td>';
+                                html += '</tr>';
+                            });
+                            fileTableBody.innerHTML = html;
+                            fileTableBody.style.display = 'table-row-group';
+                            emptyState.style.display = 'none';
+                        } else {
+                            fileTableBody.innerHTML = '';
+                            fileTableBody.style.display = 'none';
+                            emptyState.style.display = 'block';
+                        }
+                    })
+                    .catch(error => {
+                        console.error('获取文件列表失败:', error);
+                        if (mdui && mdui.snackbar) {
+                            mdui.snackbar({
+                                message: '获取文件列表失败: ' + error.message,
+                                type: 'error'
+                            });
+                        }
+                    });
+            } catch (error) {
+                console.error('getFileList函数执行失败:', error);
+            }
+        }
+        
+        function escapeHtml(str) {
+            if (!str) return '';
+            return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        }
+        
+        function previewFile(filePath, filename) {
+            window.open('/api/download?path=' + encodeURIComponent(filePath) + '&preview=true', '_blank');
+        }
+        
+        function downloadFile(filePath, filename) {
+            window.open('/api/download?path=' + encodeURIComponent(filePath), '_blank');
+        }
+        
+        function editFile(filePath, sha) {
+            const filename = filePath.split('/').pop();
+            window.location.href = '/edit?filename=' + encodeURIComponent(filename) + '&sha=' + encodeURIComponent(sha) + '&path=' + encodeURIComponent(filePath);
+        }
+        
+        function deleteFile(filePath, sha) {
+            try {
+                if (confirm('确定要删除文件 ' + filePath.split('/').pop() + ' 吗？')) {
+                    fetch(apiBase, {
+                        method: 'DELETE',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({ filePath: filePath, sha: sha })
+                    })
+                    .then(function(response) {
+                        return response.json();
+                    })
+                    .then(function(data) {
+                        if (data.success) {
+                            if (mdui && mdui.snackbar) {
+                                mdui.snackbar({
+                                    message: '文件删除成功',
+                                    type: 'success'
+                                });
+                            } else {
+                                alert('文件删除成功');
+                            }
+                            window.getFileList();
+                        } else {
+                            if (mdui && mdui.snackbar) {
+                                mdui.snackbar({
+                                    message: data.error || '删除失败',
+                                    type: 'error'
+                                });
+                            } else {
+                                alert('删除失败: ' + (data.error || '未知错误'));
+                            }
+                        }
+                    })
+                    .catch(function(error) {
+                        console.error('删除文件失败:', error);
+                        if (mdui && mdui.snackbar) {
+                            mdui.snackbar({
+                                message: '删除文件失败',
+                                type: 'error'
+                            });
+                        } else {
+                            alert('删除文件失败');
+                        }
+                    });
+                }
+            } catch (error) {
+                console.error('deleteFile函数执行失败:', error);
+            }
+        }
+        
+        function uploadFiles() {
+            try {
+                const filePicker = document.getElementById('filePicker');
+                const files = filePicker.files;
+                
+                if (!files || files.length === 0) {
+                    if (mdui && mdui.snackbar) {
+                        mdui.snackbar({
+                            message: '请先选择文件',
+                            type: 'error'
+                        });
+                    } else {
+                        alert('请先选择文件');
+                    }
+                    return;
+                }
+                
+                // 检查文件大小
+                const MAX_SIZE = 25 * 1024 * 1024;
+                for (let i = 0; i < files.length; i++) {
+                    if (files[i].size > MAX_SIZE) {
+                        if (mdui && mdui.snackbar) {
+                            mdui.snackbar({
+                                message: '文件 ' + files[i].name + ' 超过25MB限制',
+                                type: 'error'
+                            });
+                        } else {
+                            alert('文件 ' + files[i].name + ' 超过25MB限制');
+                        }
+                        return;
+                    }
+                }
+            
+                const progressContainer = document.getElementById('uploadProgress');
+                progressContainer.innerHTML = '';
+                
+                let completedUploads = 0;
+                
+                for (let index = 0; index < files.length; index++) {
+                    const file = files[index];
+                    const formData = new FormData();
+                    formData.append('file', file);
+                    formData.append('filename', file.name);
+                    
+                    const progressItem = document.createElement('div');
+                    progressItem.className = 'progress-item';
+                    progressItem.innerHTML = '<div style="display: flex; justify-content: space-between; margin-bottom: 8px;"><span>' + escapeHtml(file.name) + '</span><span id="progress' + index + '">0%</span></div><mdui-linear-progress id="progressBar' + index + '" indeterminate></mdui-linear-progress>';
+                    progressContainer.appendChild(progressItem);
+                    
+                    fetch(apiBase, {
+                        method: 'POST',
+                        body: formData
+                    })
+                    .then(function(response) {
+                        return response.json();
+                    })
+                    .then(function(data) {
+                        const progressBar = document.getElementById('progressBar' + index);
+                        const progressText = document.getElementById('progress' + index);
+                        
+                        if (progressBar && progressText) {
+                            if (data.success) {
+                                progressBar.indeterminate = false;
+                                progressBar.value = 100;
+                                progressText.textContent = '100%';
+                                if (mdui && mdui.snackbar) {
+                                    mdui.snackbar({
+                                        message: '文件 ' + file.name + ' 上传成功',
+                                        type: 'success'
+                                    });
+                                }
+                            } else {
+                                progressBar.indeterminate = false;
+                                progressBar.value = 0;
+                                progressText.textContent = '失败';
+                                if (mdui && mdui.snackbar) {
+                                    mdui.snackbar({
+                                        message: '文件 ' + file.name + ' 上传失败: ' + (data.error || '未知错误'),
+                                        type: 'error'
+                                    });
+                                }
+                            }
+                        }
+                        
+                        completedUploads++;
+                        if (completedUploads === files.length) {
+                            setTimeout(window.getFileList, 1000);
+                            setTimeout(() => {
+                                progressContainer.innerHTML = '';
+                                filePicker.value = '';
+                                document.getElementById('selectedFiles').innerHTML = '';
+                            }, 3000);
+                        }
+                    })
+                    .catch(function(error) {
+                        console.error('上传文件失败:', error);
+                        const progressBar = document.getElementById('progressBar' + index);
+                        const progressText = document.getElementById('progress' + index);
+                        if (progressBar && progressText) {
+                            progressBar.indeterminate = false;
+                            progressBar.value = 0;
+                            progressText.textContent = '失败';
+                        }
+                        if (mdui && mdui.snackbar) {
+                            mdui.snackbar({
+                                message: '文件 ' + file.name + ' 上传失败',
+                                type: 'error'
+                            });
+                        }
+                        
+                        completedUploads++;
+                        if (completedUploads === files.length) {
+                            setTimeout(window.getFileList, 1000);
+                        }
+                    });
+                }
+            } catch (error) {
+                console.error('uploadFiles函数执行失败:', error);
+            }
+        }
+        
+        document.getElementById('filePicker').addEventListener('change', function(e) {
+            const files = e.target.files;
+            const selectedFilesContainer = document.getElementById('selectedFiles');
+            
+            if (files && files.length > 0) {
+                let html = '';
+                for (let i = 0; i < files.length; i++) {
+                    const file = files[i];
+                    const fileSize = formatFileSize(file.size);
+                    html += '<span class="file-tag">' + escapeHtml(file.name) + ' (' + fileSize + ')</span>';
+                }
+                selectedFilesContainer.innerHTML = html;
+            } else {
+                selectedFilesContainer.innerHTML = '';
+            }
+        });
+        
+        // 挂载函数到window对象
+        window.getFileList = getFileList;
+        window.previewFile = previewFile;
+        window.downloadFile = downloadFile;
+        window.editFile = editFile;
+        window.deleteFile = deleteFile;
+        window.uploadFiles = uploadFiles;
+        
+        document.addEventListener('DOMContentLoaded', function() {
+            window.getFileList();
+        });
+    </script>
+</body>
+</html>`;
+}
+
+// 文件编辑页面
+function getEditFileHTML(filename, sha, filePath, env) {
+  const pathConfigs = getPathConfig(env);
+  let pathName = 'default';
+  let bestMatch = '';
+  
+  // 找到最精确匹配的路径配置
+  for (const config of pathConfigs) {
+    if (config.path && filePath.startsWith(config.path)) {
+      if (config.path.length > bestMatch.length) {
+        bestMatch = config.path;
+        pathName = config.name;
+      }
+    }
+  }
+  
+  const apiBase = '/api/files/' + pathName;
+  
+  return `
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, shrink-to-fit=no"/>
+    <meta name="renderer" content="webkit"/>
+    <link href="https://fonts.googleapis.com/icon?family=Material+Icons+Outlined" rel="stylesheet" />
+    <link rel="stylesheet" href="https://unpkg.com/mdui@2/mdui.css" />
+    <script src="https://unpkg.com/mdui@2/mdui.global.js"></script>
+    <title>编辑文件 - ${escapeHtml(filename)}</title>
+    <style>
+        :root {
+            --md-sys-color-primary: #1e40af;
+            --md-sys-color-primary-container: #dbeafe;
+            --md-sys-color-secondary: #374151;
+            --md-sys-color-secondary-container: #e5e7eb;
+            --md-sys-color-error: #b91c1c;
+            --md-sys-color-error-container: #fef2f2;
+            --md-sys-color-background: #f8fafc;
+            --md-sys-color-surface: #ffffff;
+            --md-sys-color-surface-variant: #f1f5f9;
+            --md-sys-color-on-primary: #ffffff;
+            --md-sys-color-on-secondary: #ffffff;
+            --md-sys-color-on-error: #ffffff;
+            --md-sys-color-on-background: #1e293b;
+            --md-sys-color-on-surface: #1e293b;
+            --md-sys-color-on-surface-variant: #475569;
+        }
+        
+        body {
+            font-family: 'Roboto', 'Helvetica', 'Arial', sans-serif;
+            line-height: 1.6;
+            color: var(--md-sys-color-on-background);
+            background: var(--md-sys-color-background);
+            min-height: 100vh;
+            margin: 0;
+        }
+        
+        .container {
+            max-width: 1000px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        
+        .header {
+            background: var(--md-sys-color-primary);
+            color: var(--md-sys-color-on-primary);
+            padding: 24px;
+            border-radius: 16px;
+            margin-bottom: 24px;
+            position: relative;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+        }
+        
+        .back-btn {
+            position: absolute;
+            top: 16px;
+            left: 16px;
+        }
+        
+        .edit-section {
+            background: var(--md-sys-color-surface);
+            padding: 32px;
+            border-radius: 12px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+        }
+        
+        .form-group {
+            margin-bottom: 24px;
+        }
+        
+        .form-group label {
+            display: block;
+            margin-bottom: 12px;
+            font-weight: 500;
+            color: var(--md-sys-color-on-surface);
+        }
+        
+        textarea {
+            width: 100%;
+            min-height: 500px;
+            padding: 16px;
+            border: 1px solid var(--md-sys-color-surface-variant);
+            border-radius: 8px;
+            font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+            font-size: 14px;
+            resize: vertical;
+            background: var(--md-sys-color-surface);
+            color: var(--md-sys-color-on-surface);
+            transition: border-color 0.2s ease;
+        }
+        
+        textarea:focus {
+            outline: none;
+            border-color: var(--md-sys-color-primary);
+            box-shadow: 0 0 0 2px var(--md-sys-color-primary-container);
+        }
+        
+        .form-actions {
+            display: flex;
+            gap: 16px;
+            margin-top: 32px;
+            justify-content: flex-end;
+        }
+        
+        @media (max-width: 768px) {
+            .container {
+                padding: 16px;
+            }
+            
+            .header {
+                padding: 20px;
+            }
+            
+            .edit-section {
+                padding: 24px;
+            }
+            
+            textarea {
+                min-height: 400px;
+            }
+            
+            .form-actions {
+                flex-direction: column;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <mdui-button class="back-btn" variant="text" color="white" onclick="window.history.back()" size="medium">
+                <mdui-icon slot="icon" name="arrow_back--outlined"></mdui-icon>
+                返回
+            </mdui-button>
+            <h1 class="mdui-typo-headline-medium" style="text-align: center;">编辑文件</h1>
+            <p class="mdui-typo-body-1" style="text-align: center;">${escapeHtml(filename)}</p>
+        </div>
+        
+        <div class="edit-section">
+            <form id="editForm">
+                <div class="form-group">
+                    <label for="content">文件内容</label>
+                    <textarea id="content" name="content" placeholder="请输入文件内容"></textarea>
+                </div>
+                
+                <div class="form-group">
+                    <label for="message">提交信息</label>
+                    <mdui-text-field 
+                        id="message" 
+                        name="message" 
+                        label="提交信息" 
+                        placeholder="更新文件: ${escapeHtml(filename)}"
+                        variant="outlined"
+                    ></mdui-text-field>
+                </div>
+                
+                <div class="form-actions">
+                    <mdui-button variant="outlined" color="default" onclick="window.history.back()" size="medium">
+                        取消
+                    </mdui-button>
+                    <mdui-button id="saveBtn" type="submit" variant="filled" color="primary" size="medium">
+                        <mdui-icon slot="icon" name="save--outlined"></mdui-icon>
+                        保存修改
+                    </mdui-button>
+                </div>
+            </form>
+        </div>
+    </div>
+    
+    <script>
+        const filePath = '${escapeHtml(filePath)}';
+        const apiBase = '${apiBase}';
+        
+        function loadFileContent() {
+            fetch('/api/download?path=' + encodeURIComponent(filePath))
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error('加载失败: ' + response.status);
+                    }
+                    return response.text();
+                })
+                .then(content => {
+                    document.getElementById('content').value = content;
+                })
+                .catch(error => {
+                    console.error('加载文件内容失败:', error);
+                    if (mdui && mdui.snackbar) {
+                        mdui.snackbar({
+                            message: '加载文件内容失败: ' + error.message,
+                            type: 'error'
+                        });
+                    } else {
+                        alert('加载文件内容失败');
+                    }
+                });
+        }
+        
+        document.getElementById('editForm').addEventListener('submit', function(e) {
+            e.preventDefault();
+            
+            const content = document.getElementById('content').value;
+            const message = document.getElementById('message').value || 'Update file: ${escapeHtml(filename)}';
+            
+            if (!content) {
+                if (mdui && mdui.snackbar) {
+                    mdui.snackbar({
+                        message: '文件内容不能为空',
+                        type: 'error'
+                    });
+                } else {
+                    alert('文件内容不能为空');
+                }
+                return;
+            }
+            
+            const saveBtn = document.getElementById('saveBtn');
+            saveBtn.disabled = true;
+            saveBtn.innerHTML = '<mdui-icon slot="icon" name="save--outlined"></mdui-icon>保存中...';
+            
+            fetch(apiBase, {
+                method: 'PUT',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    filePath: filePath,
+                    sha: '${sha}',
+                    content: content,
+                    message: message
+                })
+            })
+            .then(response => response.json())
+            .then(data => {
+                saveBtn.disabled = false;
+                saveBtn.innerHTML = '<mdui-icon slot="icon" name="save--outlined"></mdui-icon>保存修改';
+                
+                if (data.success) {
+                    if (mdui && mdui.snackbar) {
+                        mdui.snackbar({
+                            message: '文件修改成功',
+                            type: 'success'
+                        });
+                    } else {
+                        alert('文件修改成功');
+                    }
+                    setTimeout(() => {
+                        window.history.back();
+                    }, 1500);
+                } else {
+                    if (mdui && mdui.snackbar) {
+                        mdui.snackbar({
+                            message: data.error || '修改失败',
+                            type: 'error'
+                        });
+                    } else {
+                        alert('修改失败: ' + (data.error || '未知错误'));
+                    }
+                }
+            })
+            .catch(error => {
+                console.error('保存文件失败:', error);
+                saveBtn.disabled = false;
+                saveBtn.innerHTML = '<mdui-icon slot="icon" name="save--outlined"></mdui-icon>保存修改';
+                if (mdui && mdui.snackbar) {
+                    mdui.snackbar({
+                        message: '保存文件失败: ' + error.message,
+                        type: 'error'
+                    });
+                } else {
+                    alert('保存文件失败');
+                }
+            });
+        });
+        
+        window.onload = function() {
+            loadFileContent();
+        };
+        
+        function escapeHtml(str) {
+            if (!str) return '';
+            return str.replace(/[&<>]/g, function(m) {
+                if (m === '&') return '&amp;';
+                if (m === '<') return '&lt;';
+                if (m === '>') return '&gt;';
+                return m;
+            });
+        }
+    </script>
+</body>
+</html>`;
 }
 
 export default {
@@ -283,7 +2003,6 @@ export default {
     
     // 检查会话认证（除了登录相关页面）
     if (!verifySession(request, env)) {
-      // 未登录，重定向到登录页面
       return new Response(null, {
         status: 302,
         headers: { 'Location': '/login' }
@@ -352,1629 +2071,3 @@ export default {
     return new Response('Not Found', { status: 404 });
   }
 };
-
-// 获取文件列表
-async function getFiles(env, pathConfig) {
-  try {
-    const { GITHUB_TOKEN, GITHUB_OWNER, GITHUB_REPO, GITHUB_BRANCH } = env;
-    const path = pathConfig.path || '';
-    
-    const url = `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/contents/${path}`;
-    
-    const response = await fetch(url, {
-      headers: {
-        'Authorization': `token ${GITHUB_TOKEN}`,
-        'Accept': 'application/vnd.github.v3+json',
-        'User-Agent': 'Cloudflare-Worker'
-      }
-    });
-    
-    if (!response.ok) {
-      return new Response(JSON.stringify({ 
-        error: `GitHub API错误: ${response.status}` 
-      }), { 
-        status: response.status,
-        headers: { 'Content-Type': 'application/json' }
-      });
-    }
-    
-    const files = await response.json();
-    
-    // 过滤出文件（排除文件夹）
-    const fileList = Array.isArray(files) 
-      ? files.filter(item => item.type === 'file').map(item => ({
-          name: item.name,
-          path: item.path,
-          size: item.size,
-          download_url: item.download_url,
-          sha: item.sha
-        }))
-      : [];
-    
-    return new Response(JSON.stringify({ files: fileList }), {
-      headers: { 'Content-Type': 'application/json' }
-    });
-    
-  } catch (error) {
-    return new Response(JSON.stringify({ 
-      error: `服务器错误: ${error.message}` 
-    }), { 
-      status: 500,
-      headers: { 'Content-Type': 'application/json' }
-    });
-  }
-}
-
-// 上传文件
-async function uploadFile(request, env, pathConfig) {
-  try {
-    const formData = await request.formData();
-    const file = formData.get('file');
-    const filename = formData.get('filename') || file.name;
-    
-    if (!file) {
-      return new Response(JSON.stringify({ error: '未选择文件' }), {
-        status: 400,
-        headers: { 'Content-Type': 'application/json' }
-      });
-    }
-    
-    const { GITHUB_TOKEN, GITHUB_OWNER, GITHUB_REPO, GITHUB_BRANCH } = env;
-    const basePath = pathConfig.path || '';
-    const filePath = basePath ? `${basePath}/${filename}` : filename;
-    
-    // 正确编码文件路径
-    const encodedFilePath = encodeURIComponent(filePath);
-    
-    // 读取文件内容并编码为Base64
-    const arrayBuffer = await file.arrayBuffer();
-    const uint8Array = new Uint8Array(arrayBuffer);
-    let binaryString = '';
-    for (let i = 0; i < uint8Array.length; i++) {
-        binaryString += String.fromCharCode(uint8Array[i]);
-    }
-    const content = btoa(binaryString);
-    
-    // 检查文件是否已存在
-    const checkUrl = `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/contents/${encodedFilePath}`;
-    const checkResponse = await fetch(checkUrl, {
-      headers: {
-        'Authorization': `token ${GITHUB_TOKEN}`,
-        'Accept': 'application/vnd.github.v3+json',
-        'User-Agent': 'Cloudflare-Worker'
-      }
-    });
-    
-    let sha = null;
-    if (checkResponse.status === 200) {
-      const existingFile = await checkResponse.json();
-      sha = existingFile.sha;
-    }
-    
-    // 上传文件
-    const uploadUrl = `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/contents/${encodedFilePath}`;
-    const uploadData = {
-      message: `Upload file: ${filename}`,
-      content: content,
-      branch: GITHUB_BRANCH
-    };
-    
-    if (sha) {
-      uploadData.sha = sha;
-    }
-    
-    const uploadResponse = await fetch(uploadUrl, {
-      method: 'PUT',
-      headers: {
-        'Authorization': `token ${GITHUB_TOKEN}`,
-        'Accept': 'application/vnd.github.v3+json',
-        'Content-Type': 'application/json',
-        'User-Agent': 'Cloudflare-Worker'
-      },
-      body: JSON.stringify(uploadData)
-    });
-    
-    if (!uploadResponse.ok) {
-      const errorData = await uploadResponse.text();
-      return new Response(JSON.stringify({ 
-        error: `上传失败: ${uploadResponse.status}` 
-      }), { 
-        status: uploadResponse.status,
-        headers: { 'Content-Type': 'application/json' }
-      });
-    }
-    
-    return new Response(JSON.stringify({ 
-      success: true, 
-      message: '文件上传成功' 
-    }), {
-      headers: { 'Content-Type': 'application/json' }
-    });
-    
-  } catch (error) {
-    return new Response(JSON.stringify({ 
-      error: `上传错误: ${error.message}` 
-    }), { 
-      status: 500,
-      headers: { 'Content-Type': 'application/json' }
-    });
-  }
-}
-
-// 删除文件
-async function deleteFile(request, env, pathConfig) {
-  try {
-    const { filename, sha } = await request.json();
-    
-    if (!filename || !sha) {
-      return new Response(JSON.stringify({ error: '缺少必要参数' }), {
-        status: 400,
-        headers: { 'Content-Type': 'application/json' }
-      });
-    }
-    
-    const { GITHUB_TOKEN, GITHUB_OWNER, GITHUB_REPO, GITHUB_BRANCH } = env;
-    
-    // 构建完整的文件路径
-    const basePath = pathConfig.path || '';
-    const filePath = basePath ? basePath + '/' + filename : filename;
-    
-    // 正确编码文件路径
-    const encodedFilePath = encodeURIComponent(filePath);
-    const url = 'https://api.github.com/repos/' + GITHUB_OWNER + '/' + GITHUB_REPO + '/contents/' + encodedFilePath;
-    
-    const deleteData = {
-      message: `Delete file: ${filename}`,
-      sha: sha,
-      branch: GITHUB_BRANCH
-    };
-    
-    const response = await fetch(url, {
-      method: 'DELETE',
-      headers: {
-        'Authorization': `token ${GITHUB_TOKEN}`,
-        'Accept': 'application/vnd.github.v3+json',
-        'Content-Type': 'application/json',
-        'User-Agent': 'Cloudflare-Worker'
-      },
-      body: JSON.stringify(deleteData)
-    });
-    
-    if (!response.ok) {
-      return new Response(JSON.stringify({ 
-        error: `删除失败: ${response.status}` 
-      }), { 
-        status: response.status,
-        headers: { 'Content-Type': 'application/json' }
-      });
-    }
-    
-    return new Response(JSON.stringify({ 
-      success: true, 
-      message: '文件删除成功' 
-    }), {
-      headers: { 'Content-Type': 'application/json' }
-    });
-    
-  } catch (error) {
-    return new Response(JSON.stringify({ 
-      error: `删除错误: ${error.message}` 
-    }), { 
-      status: 500,
-      headers: { 'Content-Type': 'application/json' }
-    });
-  }
-}
-
-// 修改文件
-async function updateFile(request, env, pathConfig) {
-  try {
-    const { filename, sha, content, message } = await request.json();
-    
-    if (!filename || !sha || !content) {
-      return new Response(JSON.stringify({ error: '缺少必要参数' }), {
-        status: 400,
-        headers: { 'Content-Type': 'application/json' }
-      });
-    }
-    
-    const { GITHUB_TOKEN, GITHUB_OWNER, GITHUB_REPO, GITHUB_BRANCH } = env;
-    
-    // 构建完整的文件路径
-    const basePath = pathConfig.path || '';
-    const filePath = basePath ? basePath + '/' + filename : filename;
-    
-    // 正确编码文件路径
-    const encodedFilePath = encodeURIComponent(filePath);
-    const url = 'https://api.github.com/repos/' + GITHUB_OWNER + '/' + GITHUB_REPO + '/contents/' + encodedFilePath;
-    
-    // 将内容转换为Base64（正确处理中文）
-    const encoder = new TextEncoder();
-    const bytes = encoder.encode(content);
-    let binaryString = '';
-    for (let i = 0; i < bytes.length; i++) {
-        binaryString += String.fromCharCode(bytes[i]);
-    }
-    const contentBase64 = btoa(binaryString);
-    
-    const updateData = {
-      message: message || `Update file: ${filename}`,
-      content: contentBase64,
-      sha: sha,
-      branch: GITHUB_BRANCH
-    };
-    
-    const response = await fetch(url, {
-      method: 'PUT',
-      headers: {
-        'Authorization': `token ${GITHUB_TOKEN}`,
-        'Accept': 'application/vnd.github.v3+json',
-        'Content-Type': 'application/json',
-        'User-Agent': 'Cloudflare-Worker'
-      },
-      body: JSON.stringify(updateData)
-    });
-    
-    if (!response.ok) {
-      return new Response(JSON.stringify({ 
-        error: `修改失败: ${response.status}` 
-      }), { 
-        status: response.status,
-        headers: { 'Content-Type': 'application/json' }
-      });
-    }
-    
-    return new Response(JSON.stringify({ 
-      success: true, 
-      message: '文件修改成功' 
-    }), {
-      headers: { 'Content-Type': 'application/json' }
-    });
-    
-  } catch (error) {
-    return new Response(JSON.stringify({ 
-      error: `修改错误: ${error.message}` 
-    }), { 
-      status: 500,
-      headers: { 'Content-Type': 'application/json' }
-    });
-  }
-}
-
-// 下载代理
-async function downloadProxy(request, env) {
-  try {
-    const url = new URL(request.url);
-    const filePath = url.searchParams.get('path');
-    const previewMode = url.searchParams.get('preview') === 'true';
-    
-    if (!filePath) {
-      return new Response('缺少文件路径参数', { status: 400 });
-    }
-    
-    const { GITHUB_TOKEN, GITHUB_OWNER, GITHUB_REPO, GITHUB_BRANCH } = env;
-    
-    // 使用GitHub API获取文件内容
-    const apiUrl = `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/contents/${encodeURIComponent(filePath)}?ref=${GITHUB_BRANCH}`;
-    
-    const response = await fetch(apiUrl, {
-      headers: {
-        'Accept': 'application/vnd.github.v3+json',
-        'Authorization': `token ${GITHUB_TOKEN}`,
-        'User-Agent': 'Cloudflare-Worker'
-      }
-    });
-    
-    if (!response.ok) {
-      return new Response(`下载失败: ${response.status}`, { 
-        status: response.status 
-      });
-    }
-    
-    const data = await response.json();
-    
-    if (!data.content) {
-      return new Response('文件内容为空', { status: 404 });
-    }
-    
-    // 根据文件扩展名设置正确的Content-Type
-    const getContentType = (filename) => {
-      const extension = filename.split('.').pop().toLowerCase();
-      const typeMap = {
-        // 图片文件
-        'jpg': 'image/jpeg',
-        'jpeg': 'image/jpeg',
-        'png': 'image/png',
-        'gif': 'image/gif',
-        'bmp': 'image/bmp',
-        'webp': 'image/webp',
-        'svg': 'image/svg+xml',
-        // 文档文件
-        'pdf': 'application/pdf',
-        'txt': 'text/plain',
-        'md': 'text/markdown',
-        'html': 'text/html',
-        'htm': 'text/html',
-        'xml': 'application/xml',
-        'json': 'application/json',
-        'csv': 'text/csv',
-        'log': 'text/plain'
-      };
-      return typeMap[extension] || 'application/octet-stream';
-    };
-    
-    const filename = filePath.split('/').pop();
-    const contentType = getContentType(filename);
-    
-    // 解码Base64内容并转换为正确的格式
-    const base64Content = data.content.replace(/\s/g, '');
-    
-    // 对于图片文件，需要转换为二进制格式
-    const isImageFile = contentType.startsWith('image/');
-    
-    let responseContent;
-    let contentLength;
-    
-    if (isImageFile) {
-      // 图片文件：转换为Uint8Array
-      const binaryString = atob(base64Content);
-      const bytes = new Uint8Array(binaryString.length);
-      for (let i = 0; i < binaryString.length; i++) {
-        bytes[i] = binaryString.charCodeAt(i);
-      }
-      responseContent = bytes;
-      contentLength = bytes.length.toString();
-    } else {
-      // 文本文件：正确处理中文的Base64解码
-      const binaryString = atob(base64Content);
-      const bytes = new Uint8Array(binaryString.length);
-      for (let i = 0; i < binaryString.length; i++) {
-        bytes[i] = binaryString.charCodeAt(i);
-      }
-      // 使用TextDecoder将字节转换为UTF-8字符串
-      const decoder = new TextDecoder('utf-8');
-      responseContent = decoder.decode(bytes);
-      contentLength = (new TextEncoder().encode(responseContent)).length.toString();
-    }
-    
-    // 设置响应头
-    const headers = {
-      'Content-Type': contentType,
-      'Content-Length': contentLength
-    };
-    
-    if (previewMode) {
-      // 预览模式：内联显示，不下载
-      headers['Content-Disposition'] = 'inline';
-    } else {
-      // 下载模式：强制下载，正确处理中文文件名
-      // 使用更兼容的方法：只使用URL编码的文件名
-      const encodedFilename = encodeURIComponent(filename);
-      headers['Content-Disposition'] = `attachment; filename="${encodedFilename}"`;
-    }
-    
-    // 返回文件内容
-    return new Response(responseContent, { headers });
-    
-  } catch (error) {
-    return new Response(`下载错误: ${error.message}`, { status: 500 });
-  }
-}
-
-// 路径选择界面
-function getPathSelectionHTML(pathConfigs) {
-  return `<!DOCTYPE html>
-<html lang="zh-CN">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>GitHub文件管理器 - 选择路径</title>
-    <style>
-        * { box-sizing: border-box; margin: 0; padding: 0; }
-        body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; background: #f5f5f5; }
-        .container { max-width: 800px; margin: 0 auto; padding: 40px 20px; }
-        .header { background: #2c3e50; color: white; padding: 30px; border-radius: 8px; margin-bottom: 30px; text-align: center; position: relative; }
-        .logout-btn { position: absolute; top: 20px; right: 20px; background: #e74c3c; color: white; border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer; text-decoration: none; }
-        .logout-btn:hover { background: #c0392b; }
-        .path-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 20px; }
-        .path-card { background: white; padding: 25px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); text-align: center; transition: transform 0.2s; }
-        .path-card:hover { transform: translateY(-5px); }
-        .path-card h3 { margin-bottom: 15px; color: #2c3e50; }
-        .path-card p { color: #7f8c8d; margin-bottom: 20px; }
-        .btn { background: #3498db; color: white; border: none; padding: 12px 25px; border-radius: 4px; cursor: pointer; text-decoration: none; display: inline-block; }
-        .btn:hover { background: #2980b9; }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <div class="header">
-            <h1>GitHub文件管理器</h1>
-            <p>请选择要管理的文件夹路径</p>
-            <button class="logout-btn" onclick="logout()">登出</button>
-        </div>
-        
-        <div class="path-grid">
-            ${pathConfigs.map(config => `
-                <div class="path-card">
-                    <h3>${config.displayName}</h3>
-                    <p>路径: ${config.path || '根目录'}</p>
-                    <a href="/${config.name}" class="btn">进入管理</a>
-                </div>
-            `).join('')}
-        </div>
-    </div>
-    
-    <script>
-        // 登出函数
-        function logout() {
-            if (confirm('确定要登出吗？')) {
-                fetch('/api/logout', {
-                    method: 'POST'
-                }).then(() => {
-                    window.location.href = '/login';
-                }).catch(error => {
-                    console.error('登出失败:', error);
-                    window.location.href = '/login';
-                });
-            }
-        }
-    </script>
-</body>
-</html>`;
-}
-
-// 文件编辑页面
-function getEditFileHTML(filename, sha, filePath, env) {
-  // 根据文件路径自动识别正确的路径配置
-  const pathConfigs = getPathConfig(env);
-  let pathName = 'default';
-  
-  // 查找文件所属的路径配置
-  for (const config of pathConfigs) {
-    if (config.path && filePath.startsWith(config.path)) {
-      pathName = config.name;
-      break;
-    }
-  }
-  
-  const apiBase = '/api/files/' + pathName;
-  
-  return `
-<!DOCTYPE html>
-<html lang="zh-CN">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>编辑文件 - ${filename}</title>
-    <style>
-        * { box-sizing: border-box; margin: 0; padding: 0; }
-        body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; background: #f5f5f5; }
-        .container { max-width: 1000px; margin: 0 auto; padding: 20px; }
-        .header { background: #2c3e50; color: white; padding: 20px; border-radius: 8px; margin-bottom: 20px; position: relative; }
-        .back-btn { position: absolute; top: 20px; left: 20px; background: #95a5a6; color: white; border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer; text-decoration: none; }
-        .back-btn:hover { background: #7f8c8d; }
-        .edit-section { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
-        .btn { background: #3498db; color: white; border: none; padding: 10px 20px; border-radius: 4px; cursor: pointer; margin: 5px; }
-        .btn:hover { background: #2980b9; }
-        .btn-success { background: #27ae60; }
-        .btn-success:hover { background: #229954; }
-        .btn-warning { background: #f39c12; }
-        .btn-warning:hover { background: #e67e22; }
-        .form-group { margin-bottom: 15px; }
-        label { display: block; margin-bottom: 5px; font-weight: bold; }
-        input[type="text"], textarea { width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px; }
-        textarea { font-family: monospace; height: 400px; resize: vertical; }
-        .message { padding: 10px; margin: 10px 0; border-radius: 4px; }
-        .success { background: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
-        .error { background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
-        .warning { background: #fff3cd; color: #856404; border: 1px solid #ffeaa7; }
-        .loading { display: none; text-align: center; margin: 20px 0; }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <div class="header">
-            <button class="back-btn" onclick="goBack()">← 返回</button>
-            <h1 style="text-align: center; margin: 0;">编辑文件: ${filename}</h1>
-        </div>
-        
-        <div class="edit-section">
-            <div id="message"></div>
-            <div class="loading" id="loading">加载中...</div>
-            
-            <div class="form-group">
-                <label for="editMessage">提交信息:</label>
-                <input type="text" id="editMessage" value="Update file: ${filename}">
-            </div>
-            
-            <div class="form-group">
-                <label for="editContent">文件内容:</label>
-                <textarea id="editContent" placeholder="正在加载文件内容..."></textarea>
-            </div>
-            
-            <div style="text-align: right;">
-                <button class="btn btn-success" onclick="saveFileChanges()">保存修改</button>
-                <button class="btn" onclick="goBack()">取消</button>
-            </div>
-        </div>
-    </div>
-    
-    <script>
-        const filename = '${filename}';
-        const sha = '${sha}';
-        const filePath = '${filePath}';
-        const apiBase = '${apiBase}';
-        
-        // 页面加载时获取文件内容
-        window.addEventListener('DOMContentLoaded', async function() {
-            await loadFileContent();
-        });
-        
-        // 加载文件内容
-        async function loadFileContent() {
-            const loading = document.getElementById('loading');
-            const editContent = document.getElementById('editContent');
-            
-            loading.style.display = 'block';
-            
-            try {
-                const response = await fetch('/api/download?path=' + encodeURIComponent(filePath));
-                
-                if (response.ok) {
-                    const content = await response.text();
-                    editContent.value = content;
-                    showMessage('文件内容加载成功', 'success');
-                } else {
-                    showMessage('获取文件内容失败: ' + response.status, 'error');
-                }
-            } catch (error) {
-                showMessage('加载错误: ' + error.message, 'error');
-            } finally {
-                loading.style.display = 'none';
-            }
-        }
-        
-        // 保存文件修改
-        async function saveFileChanges() {
-            const message = document.getElementById('editMessage').value;
-            const content = document.getElementById('editContent').value;
-            
-            if (!message.trim()) {
-                showMessage('请输入提交信息', 'warning');
-                return;
-            }
-            
-            if (!content.trim()) {
-                showMessage('文件内容不能为空', 'warning');
-                return;
-            }
-            
-            const loading = document.getElementById('loading');
-            loading.style.display = 'block';
-            
-            try {
-                const response = await fetch(apiBase, {
-                    method: 'PUT',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ filename, sha, content, message })
-                });
-                
-                const data = await response.json();
-                
-                if (response.ok) {
-                    showMessage('文件修改成功', 'success');
-                    setTimeout(() => {
-                        goBack();
-                    }, 2000);
-                } else {
-                    showMessage('修改失败: ' + (data.error || response.status), 'error');
-                }
-            } catch (error) {
-                showMessage('保存错误: ' + error.message, 'error');
-            } finally {
-                loading.style.display = 'none';
-            }
-        }
-        
-        // 显示消息
-        function showMessage(message, type) {
-            const messageDiv = document.getElementById('message');
-            messageDiv.innerHTML = '<div class="message ' + type + '">' + message + '</div>';
-            setTimeout(() => messageDiv.innerHTML = '', 5000);
-        }
-        
-        // 返回上一页
-        function goBack() {
-            window.history.back();
-        }
-    </script>
-</body>
-</html>
-  `;
-}
-
-// 文件管理界面
-function getFileManagerHTML(currentPathConfig, allPathConfigs, env) {
-  const apiBase = `/api/files/${currentPathConfig.name}`;
-  const title = `GitHub文件管理器 - ${currentPathConfig.displayName}`;
-  const { GITHUB_OWNER, GITHUB_REPO, GITHUB_BRANCH } = env;
-  
-  return `<!DOCTYPE html>
-<html lang="zh-CN">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>${title}</title>
-    <script>
-        // 从后端传递的环境变量
-        const GITHUB_OWNER = '${GITHUB_OWNER}';
-        const GITHUB_REPO = '${GITHUB_REPO}';
-        const GITHUB_BRANCH = '${GITHUB_BRANCH}';
-        
-        // 检测文件类型是否支持预览
-        function isPreviewableFile(filename) {
-            const previewableExtensions = [
-                // 图片文件
-                'jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp', 'svg',
-                // 文档文件
-                'pdf', 'txt', 'md', 'html', 'htm', 'xml', 'json',
-                // 其他可预览文件
-                'csv', 'log'
-            ];
-            
-            const extension = filename.split('.').pop().toLowerCase();
-            return previewableExtensions.includes(extension);
-        }
-        
-        // 检测文件类型是否支持编辑
-        function isEditableFile(filename) {
-            const editableExtensions = [
-                // 文本文件
-                'txt', 'md', 'html', 'htm', 'xml', 'json', 'js', 'css', 'ts',
-                // 配置文件
-                'yml', 'yaml', 'ini', 'conf', 'properties', 'env', 'toml',
-                // 数据文件
-                'csv', 'log', 'sql'
-            ];
-            
-            const extension = filename.split('.').pop().toLowerCase();
-            return editableExtensions.includes(extension);
-        }
-        
-        // 获取文件预览URL
-        function getPreviewUrl(filePath) {
-            return '/api/download?path=' + encodeURIComponent(filePath) + '&preview=true';
-        }
-        
-        // 预览文件
-        function previewFile(filePath) {
-            const previewUrl = getPreviewUrl(filePath);
-            // 直接在新标签页打开预览URL
-            window.open(previewUrl, '_blank');
-        }
-        
-        // 下载文件
-        async function downloadFile(filePath) {
-            try {
-                // 使用后端代理下载文件
-                const response = await fetch('/api/download?path=' + encodeURIComponent(filePath));
-                
-                if (response.ok) {
-                    // 获取文件内容和文件名
-                    const blob = await response.blob();
-                    
-                    // 解析Content-Disposition头中的文件名
-                    const contentDisposition = response.headers.get('Content-Disposition');
-                    let filename = filePath.split('/').pop();
-                    
-                    if (contentDisposition) {
-                        const filenameMatch = contentDisposition.match(/filename="([^"]+)"/);
-                        if (filenameMatch) {
-                            // 解码URL编码的文件名
-                            filename = decodeURIComponent(filenameMatch[1]);
-                        }
-                    }
-                    
-                    // 创建Blob URL
-                    const blobUrl = URL.createObjectURL(blob);
-                    
-                    // 创建下载链接
-                    const a = document.createElement('a');
-                    a.href = blobUrl;
-                    a.download = filename;
-                    a.style.display = 'none';
-                    document.body.appendChild(a);
-                    a.click();
-                    
-                    // 清理资源
-                    setTimeout(function() {
-                        document.body.removeChild(a);
-                        URL.revokeObjectURL(blobUrl);
-                    }, 100);
-                    
-                    showMessage('正在下载: ' + filename, 'success');
-                } else {
-                    const errorData = await response.text();
-                    showMessage('下载失败: ' + (errorData || response.status), 'error');
-                }
-            } catch (error) {
-                showMessage('下载错误: ' + error.message, 'error');
-            }
-        }
-    </script>
-    <style>
-        * { box-sizing: border-box; margin: 0; padding: 0; }
-        body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; background: #f5f5f5; }
-        .container { max-width: 1200px; margin: 0 auto; padding: 20px; }
-        .header { background: #2c3e50; color: white; padding: 20px; border-radius: 8px; margin-bottom: 20px; position: relative; }
-        .logout-btn { position: absolute; top: 20px; right: 20px; background: #e74c3c; color: white; border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer; text-decoration: none; }
-        .logout-btn:hover { background: #c0392b; }
-        .upload-section { background: white; padding: 20px; border-radius: 8px; margin-bottom: 20px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
-        .file-list { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
-        .btn { background: #3498db; color: white; border: none; padding: 10px 20px; border-radius: 4px; cursor: pointer; margin: 5px; }
-        .btn:hover { background: #2980b9; }
-        .btn-danger { background: #e74c3c; }
-        .btn-danger:hover { background: #c0392b; }
-        .btn-success { background: #27ae60; }
-        .btn-success:hover { background: #229954; }
-        input[type="file"] { margin: 10px 0; }
-        table { width: 100%; border-collapse: collapse; margin-top: 10px; }
-        th, td { padding: 12px; text-align: left; border-bottom: 1px solid #ddd; }
-        th { background: #f8f9fa; font-weight: bold; }
-        .message { padding: 10px; margin: 10px 0; border-radius: 4px; }
-        .success { background: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
-        .error { background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
-        .warning { background: #fff3cd; color: #856404; border: 1px solid #ffeaa7; }
-        .loading { display: none; text-align: center; margin: 20px 0; }
-        
-        /* 上传进度样式 */
-        .file-progress {
-            margin: 10px 0;
-            padding: 10px;
-            border: 1px solid #ddd;
-            border-radius: 4px;
-            background-color: white;
-        }
-        
-        .file-info {
-            display: flex;
-            justify-content: space-between;
-            margin-bottom: 8px;
-        }
-        
-        .filename {
-            font-weight: bold;
-            color: #333;
-        }
-        
-        .file-size {
-            color: #666;
-            font-size: 0.9em;
-        }
-        
-        .progress-container {
-            width: 100%;
-            height: 20px;
-            background-color: #f0f0f0;
-            border-radius: 10px;
-            overflow: hidden;
-            margin: 5px 0;
-        }
-        
-        .progress-bar {
-            position: relative;
-            height: 100%;
-            width: 100%;
-        }
-        
-        .progress-fill {
-            height: 100%;
-            background: linear-gradient(90deg, #4CAF50, #45a049);
-            border-radius: 10px;
-            transition: width 0.3s ease;
-            width: 0%;
-        }
-        
-        .progress-text {
-            position: absolute;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            color: #333;
-            font-size: 12px;
-            font-weight: bold;
-        }
-        
-        .status {
-            font-size: 0.9em;
-            margin-top: 5px;
-            padding: 3px 8px;
-            border-radius: 3px;
-            display: inline-block;
-        }
-        
-        .status.uploading { background-color: #d1ecf1; color: #0c5460; }
-        .status.success { background-color: #d4edda; color: #155724; }
-        .status.error { background-color: #f8d7da; color: #721c24; }
-        .path-nav { margin-top: 15px; }
-        .path-nav .btn { background: #95a5a6; margin: 0 5px; }
-        
-        /* 编辑模态框样式 */
-        .modal-overlay {
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background: rgba(0, 0, 0, 0.5);
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            z-index: 1000;
-        }
-        
-        .modal-content {
-            background: white;
-            border-radius: 8px;
-            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
-            width: 80%;
-            max-width: 800px;
-            max-height: 90%;
-            display: flex;
-            flex-direction: column;
-        }
-        
-        .modal-header {
-            padding: 20px;
-            border-bottom: 1px solid #eee;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-        
-        .modal-header h3 {
-            margin: 0;
-            color: #2c3e50;
-        }
-        
-        .close-btn {
-            background: none;
-            border: none;
-            font-size: 24px;
-            cursor: pointer;
-            color: #7f8c8d;
-        }
-        
-        .close-btn:hover {
-            color: #e74c3c;
-        }
-        
-        .modal-body {
-            padding: 20px;
-            overflow-y: auto;
-            flex: 1;
-        }
-        
-        .modal-footer {
-            padding: 20px;
-            border-top: 1px solid #eee;
-            text-align: right;
-        }
-        
-        .btn-warning {
-            background: #f39c12;
-            color: white;
-        }
-        
-        .btn-warning:hover {
-            background: #e67e22;
-        }
-        
-        .path-nav .btn.active { background: #3498db; }
-        .path-nav .btn:hover { background: #7f8c8d; }
-        .path-nav .btn.active:hover { background: #2980b9; }
-        
-        /* 文件名溢出处理 */
-        .filename-cell {
-            max-width: 300px;
-            overflow: hidden;
-            text-overflow: ellipsis;
-            white-space: nowrap;
-        }
-        
-        /* 移动端响应式设计 */
-        @media (max-width: 768px) {
-            .container { padding: 10px; }
-            .header { padding: 15px; }
-            .header h1 { font-size: 1.5rem; margin-bottom: 10px; }
-            .path-nav { flex-direction: column; gap: 5px; }
-            .path-nav .btn { 
-                width: 100%; 
-                text-align: center; 
-                padding: 10px; 
-                font-size: 0.9rem;
-                margin: 2px 0;
-            }
-            .upload-section input[type="text"] { width: 100%; max-width: 300px; }
-            .file-list { grid-template-columns: 1fr; }
-            .file-item { padding: 8px; }
-            .file-actions { flex-direction: column; gap: 5px; }
-            .file-actions .btn { width: 100%; margin: 2px 0; }
-            
-            /* 移动端表格优化 */
-            table { font-size: 0.9rem; }
-            th, td { padding: 8px; }
-            .filename-cell { 
-                max-width: 150px; 
-                word-wrap: break-word;
-                white-space: normal;
-                line-height: 1.3;
-            }
-        }
-        
-        @media (max-width: 480px) {
-            .header h1 { font-size: 1.3rem; }
-            .header p { font-size: 0.9rem; }
-            .path-nav .btn { font-size: 0.85rem; padding: 8px; }
-            .btn { padding: 8px 16px; font-size: 0.9rem; }
-            .file-item { flex-direction: column; align-items: flex-start; }
-            .file-info { width: 100%; margin-bottom: 8px; }
-            .file-actions { width: 100%; }
-            
-            /* 超小屏幕表格优化 */
-            table { font-size: 0.8rem; }
-            th, td { padding: 6px; }
-            .filename-cell { 
-                max-width: 100px; 
-                word-wrap: break-word;
-                white-space: normal;
-                line-height: 1.2;
-                font-size: 0.85rem;
-            }
-            
-            /* 操作按钮优化 */
-            .file-actions .btn { 
-                font-size: 0.8rem; 
-                padding: 6px 12px; 
-                margin: 1px 0;
-            }
-        }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <div class="header">
-            <h1>${title}</h1>
-            <p>通过Cloudflare Worker管理GitHub仓库文件</p>
-            <button class="logout-btn" onclick="logout()">登出</button>
-            <div class="path-nav">
-                <a href="/" class="btn">返回路径选择</a>
-                ${allPathConfigs.map(config => `
-                    <a href="/${config.name}" class="btn ${currentPathConfig.name === config.name ? 'active' : ''}">
-                        ${config.displayName}
-                    </a>
-                `).join('')}
-            </div>
-        </div>
-        
-        <div class="upload-section">
-            <h2>上传文件</h2>
-            <input type="file" id="fileInput" accept="*/*" multiple>
-            <input type="text" id="filenameInput" placeholder="自定义文件名（可选）" style="width: 300px; padding: 8px; margin: 10px 0;">
-            <button class="btn btn-success" onclick="uploadFiles()">上传文件</button>
-            
-            <!-- 已选择文件列表 -->
-            <div id="selectedFiles" style="margin-top: 15px; display: none;">
-                <h4>已选择文件 (<span id="fileCount">0</span>个)</h4>
-                <div style="margin-bottom: 10px;">
-                    <input type="text" id="fileFilter" placeholder="筛选文件名..." style="width: 300px; padding: 6px; margin-right: 10px;">
-                    <button class="btn" onclick="clearSelectedFiles()" style="padding: 6px 12px;">清空列表</button>
-                </div>
-                <div id="fileList" style="max-height: 200px; overflow-y: auto; border: 1px solid #ddd; border-radius: 4px; padding: 10px;"></div>
-            </div>
-            
-            <div id="uploadProgress" style="margin-top: 10px; display: none;"></div>
-        </div>
-        
-        <div class="file-list">
-            <h2>文件列表</h2>
-            <div style="margin-bottom: 15px;">
-                <button class="btn" onclick="loadFiles()">刷新列表</button>
-                <button class="btn btn-success" onclick="batchDownloadFiles()" id="batchDownloadBtn" style="display: none;">批量下载选中文件</button>
-                <button class="btn btn-danger" onclick="batchDeleteFiles()" id="batchDeleteBtn" style="display: none;">批量删除选中文件</button>
-                <span id="selectedCount" style="margin-left: 10px; color: #666; display: none;">已选择 <span id="count">0</span> 个文件</span>
-            </div>
-            <div id="message"></div>
-            <div class="loading" id="loading">加载中...</div>
-            <table id="fileTable">
-                <thead>
-                    <tr>
-                        <th style="width: 40px;"><input type="checkbox" id="selectAll" onchange="toggleSelectAll(this.checked)"></th>
-                        <th>文件名</th>
-                        <th>大小</th>
-                        <th>操作</th>
-                    </tr>
-                </thead>
-                <tbody id="fileTableBody"></tbody>
-            </table>
-        </div>
-    </div>
-
-    <script>
-        // HTML转义函数
-        function escapeHtml(text) {
-            const map = {
-                '&': '&amp;',
-                '<': '&lt;',
-                '>': '&gt;',
-                '"': '&quot;',
-                "'": '&#x27;'
-            };
-            return text.replace(/[&<>"']/g, function(m) { return map[m]; });
-        }
-
-        // 显示消息
-        function showMessage(message, type) {
-            const messageDiv = document.getElementById('message');
-            messageDiv.innerHTML = '<div class="message ' + escapeHtml(type) + '">' + escapeHtml(message) + '</div>';
-            setTimeout(() => messageDiv.innerHTML = '', 5000);
-        }
-
-        // 更新选择状态
-        function updateSelection() {
-            const checkboxes = document.querySelectorAll('.file-checkbox:checked');
-            const selectedCount = checkboxes.length;
-            const batchDownloadBtn = document.getElementById('batchDownloadBtn');
-            const batchDeleteBtn = document.getElementById('batchDeleteBtn');
-            const selectedCountSpan = document.getElementById('selectedCount');
-            const countSpan = document.getElementById('count');
-            
-            if (selectedCount > 0) {
-                batchDownloadBtn.style.display = 'inline-block';
-                batchDeleteBtn.style.display = 'inline-block';
-                selectedCountSpan.style.display = 'inline-block';
-                countSpan.textContent = selectedCount;
-            } else {
-                batchDownloadBtn.style.display = 'none';
-                batchDeleteBtn.style.display = 'none';
-                selectedCountSpan.style.display = 'none';
-            }
-        }
-        
-        // 全选/取消全选
-        function toggleSelectAll(checked) {
-            const checkboxes = document.querySelectorAll('.file-checkbox');
-            checkboxes.forEach(function(checkbox) {
-                checkbox.checked = checked;
-            });
-            updateSelection();
-        }
-
-        // 批量下载文件
-        async function batchDownloadFiles() {
-            const checkboxes = document.querySelectorAll('.file-checkbox:checked');
-            
-            if (checkboxes.length === 0) {
-                showMessage('请先选择要下载的文件', 'warning');
-                return;
-            }
-            
-            if (!confirm('确定要下载选中的 ' + checkboxes.length + ' 个文件吗？')) {
-                return;
-            }
-            
-            showMessage('开始批量下载 ' + checkboxes.length + ' 个文件...', 'success');
-            
-            // 逐个下载文件
-            for (let i = 0; i < checkboxes.length; i++) {
-                const checkbox = checkboxes[i];
-                const filePath = checkbox.getAttribute('data-path');
-                
-                try {
-                    // 使用后端代理下载文件
-                    const response = await fetch('/api/download?path=' + encodeURIComponent(filePath));
-                    
-                    if (response.ok) {
-                        // 获取文件内容和文件名
-                        const blob = await response.blob();
-                        
-                        // 解析Content-Disposition头中的文件名
-                        const contentDisposition = response.headers.get('Content-Disposition');
-                        let filename = filePath.split('/').pop();
-                        
-                        if (contentDisposition) {
-                            const filenameMatch = contentDisposition.match(/filename="([^"]+)"/);
-                            if (filenameMatch) {
-                                // 解码URL编码的文件名
-                                filename = decodeURIComponent(filenameMatch[1]);
-                            }
-                        }
-                        
-                        // 创建Blob URL
-                        const blobUrl = URL.createObjectURL(blob);
-                        
-                        // 创建下载链接
-                        const a = document.createElement('a');
-                        a.href = blobUrl;
-                        a.download = filename;
-                        a.style.display = 'none';
-                        document.body.appendChild(a);
-                        a.click();
-                        
-                        // 清理资源
-                        setTimeout(function() {
-                            document.body.removeChild(a);
-                            URL.revokeObjectURL(blobUrl);
-                        }, 100);
-                        
-                        showMessage('正在下载: ' + filename, 'success');
-                    } else {
-                        showMessage('下载失败: ' + filePath, 'error');
-                    }
-                } catch (error) {
-                    showMessage('下载错误: ' + error.message, 'error');
-                }
-                
-                // 添加延迟避免同时下载过多文件
-                await new Promise(resolve => setTimeout(resolve, 500));
-            }
-            
-            showMessage('批量下载完成', 'success');
-        }
-        
-        // 批量删除文件
-        async function batchDeleteFiles() {
-            const checkboxes = document.querySelectorAll('.file-checkbox:checked');
-            
-            if (checkboxes.length === 0) {
-                showMessage('请先选择要删除的文件', 'warning');
-                return;
-            }
-            
-            if (!confirm('确定要删除选中的 ' + checkboxes.length + ' 个文件吗？此操作不可撤销！')) {
-                return;
-            }
-            
-            showMessage('开始批量删除 ' + checkboxes.length + ' 个文件...', 'success');
-            
-            let successCount = 0;
-            let errorCount = 0;
-            
-            // 逐个删除文件
-            for (let i = 0; i < checkboxes.length; i++) {
-                const checkbox = checkboxes[i];
-                const filename = checkbox.value;
-                const sha = checkbox.getAttribute('data-sha');
-                
-                try {
-                    const response = await fetch('${apiBase}', {
-                        method: 'DELETE',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ filename, sha })
-                    });
-                    
-                    const data = await response.json();
-                    
-                    if (response.ok) {
-                        successCount++;
-                        showMessage('删除成功: ' + filename, 'success');
-                    } else {
-                        errorCount++;
-                        showMessage('删除失败: ' + filename + ': ' + (data.error || response.status), 'error');
-                    }
-                } catch (error) {
-                    errorCount++;
-                    showMessage('删除错误: ' + filename + ': ' + error.message, 'error');
-                }
-                
-                // 添加延迟避免API限制
-                await new Promise(resolve => setTimeout(resolve, 1000));
-            }
-            
-            // 显示最终结果
-            let resultMessage = '批量删除完成: ';
-            if (successCount > 0) {
-                resultMessage += successCount + ' 个文件删除成功';
-            }
-            if (errorCount > 0) {
-                resultMessage += (successCount > 0 ? ', ' : '') + errorCount + ' 个文件删除失败';
-            }
-            
-            showMessage(resultMessage, successCount > 0 && errorCount === 0 ? 'success' : 'warning');
-            
-            // 刷新文件列表
-            loadFiles();
-        }
-
-        // 加载文件列表
-        async function loadFiles() {
-            const loading = document.getElementById('loading');
-            const tableBody = document.getElementById('fileTableBody');
-            
-            loading.style.display = 'block';
-            tableBody.innerHTML = '';
-            
-            try {
-                const response = await fetch('${apiBase}');
-                const data = await response.json();
-                
-                if (response.ok) {
-                    if (data.files && data.files.length > 0) {
-                        data.files.forEach(file => {
-                            const row = tableBody.insertRow();
-                            
-                            // 选择复选框
-                            const selectCell = row.insertCell();
-                            const checkbox = document.createElement('input');
-                            checkbox.type = 'checkbox';
-                            checkbox.className = 'file-checkbox';
-                            checkbox.value = file.name;
-                            checkbox.setAttribute('data-sha', file.sha);
-                            checkbox.setAttribute('data-path', file.path);
-                            checkbox.onchange = function() { updateSelection(); };
-                            selectCell.appendChild(checkbox);
-                            
-                            // 安全地创建DOM元素，避免innerHTML的XSS风险
-                            const nameCell = row.insertCell();
-                            nameCell.className = 'filename-cell';
-                            nameCell.textContent = file.name;
-                            
-                            const sizeCell = row.insertCell();
-                            sizeCell.textContent = formatFileSize(file.size);
-                            
-                            const actionCell = row.insertCell();
-                            
-                            // 查看按钮（仅对可预览文件显示）
-                            if (isPreviewableFile(file.name)) {
-                                const viewBtn = document.createElement('button');
-                                viewBtn.className = 'btn btn-success';
-                                viewBtn.textContent = '查看';
-                                viewBtn.onclick = function() { previewFile(file.path); };
-                                actionCell.appendChild(viewBtn);
-                            }
-                            
-                            // 下载按钮
-                            const downloadBtn = document.createElement('button');
-                            downloadBtn.className = 'btn';
-                            downloadBtn.textContent = '下载';
-                            downloadBtn.onclick = function() { downloadFile(file.path); };
-                            actionCell.appendChild(downloadBtn);
-                            
-                            // 修改按钮（仅对可编辑文件显示）
-                            if (isEditableFile(file.name)) {
-                                const editBtn = document.createElement('button');
-                                editBtn.className = 'btn btn-warning';
-                                editBtn.textContent = '修改';
-                                editBtn.onclick = function() { editFile(file.name, file.sha, file.path); };
-                                actionCell.appendChild(editBtn);
-                            }
-                            
-                            // 删除按钮
-                            const deleteBtn = document.createElement('button');
-                            deleteBtn.className = 'btn btn-danger';
-                            deleteBtn.textContent = '删除';
-                            deleteBtn.onclick = function() { deleteFile(escapeHtml(file.name), escapeHtml(file.sha)); };
-                            actionCell.appendChild(deleteBtn);
-                        });
-                    } else {
-                        tableBody.innerHTML = '<tr><td colspan="3" style="text-align: center;">暂无文件</td></tr>';
-                    }
-                } else {
-                    showMessage('加载失败: ' + (data.error || response.status), 'error');
-                }
-            } catch (error) {
-                showMessage('网络错误: ' + error.message, 'error');
-            } finally {
-                loading.style.display = 'none';
-            }
-        }
-
-        // 多文件上传
-        async function uploadFiles() {
-            const fileInput = document.getElementById('fileInput');
-            const filenameInput = document.getElementById('filenameInput');
-            const uploadProgress = document.getElementById('uploadProgress');
-            
-            if (!fileInput.files.length) {
-                showMessage('请选择要上传的文件', 'error');
-                return;
-            }
-            
-            // 显示上传进度区域
-            uploadProgress.style.display = 'block';
-            uploadProgress.innerHTML = '<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;"><h3 style="margin: 0;">上传进度</h3><button id="closeProgress" class="btn btn-danger" style="padding: 4px 8px; font-size: 12px;">关闭</button></div>';
-            
-            const files = Array.from(fileInput.files);
-            let successCount = 0;
-            let errorCount = 0;
-            
-            // 为每个文件创建进度条
-            const progressBars = {};
-            files.forEach((file, index) => {
-                const progressId = 'progress-' + index;
-                progressBars[file.name] = progressId;
-                uploadProgress.innerHTML += '<div class="file-progress"><div class="file-info"><span class="filename">' + escapeHtml(file.name) + '</span><span class="file-size">(' + formatFileSize(file.size) + ')</span></div><div class="progress-container"><div class="progress-bar" id="' + progressId + '"><div class="progress-fill"></div><span class="progress-text">0%</span></div></div><div class="status" id="status-' + index + '">等待上传...</div></div>';
-            });
-            
-            // 逐个上传文件
-            for (let i = 0; i < files.length; i++) {
-                const file = files[i];
-                const progressId = progressBars[file.name];
-                const statusElement = document.getElementById('status-' + i);
-                
-                try {
-                    // 更新状态
-                    statusElement.textContent = '上传中...';
-                    statusElement.className = 'status uploading';
-                    
-                    // 构建文件名
-                    let finalFilename = file.name;
-                    if (filenameInput.value && !filenameInput.disabled) {
-                        // 单文件上传：使用用户输入的文件名
-                        finalFilename = filenameInput.value;
-                        // 确保文件名有正确的扩展名
-                        const originalExtension = file.name.split('.').pop();
-                        if (!finalFilename.includes('.')) {
-                            finalFilename = finalFilename + '.' + originalExtension;
-                        }
-                    } else if (files.length > 1) {
-                        // 多文件上传：保持原文件名
-                        finalFilename = file.name;
-                    }
-                    
-                    const formData = new FormData();
-                    formData.append('file', file);
-                    formData.append('filename', finalFilename);
-                    
-                    // 使用fetch API上传文件，模拟进度条
-                        const response = await fetch('${apiBase}', {
-                        method: 'POST',
-                        body: formData
-                    });
-                    
-                    // 模拟进度条更新（由于fetch API不支持进度监听，我们使用模拟进度）
-                    let progress = 0;
-                    const progressInterval = setInterval(() => {
-                        if (progress < 90) {
-                            progress += 10;
-                            updateProgressBar(progressId, progress);
-                        }
-                    }, 200);
-                    
-                    // 上传完成
-                    if (response.ok) {
-                        clearInterval(progressInterval);
-                        updateProgressBar(progressId, 100);
-                        successCount++;
-                        statusElement.textContent = '上传成功';
-                        statusElement.className = 'status success';
-                    } else {
-                        clearInterval(progressInterval);
-                        updateProgressBar(progressId, 100);
-                        errorCount++;
-                        statusElement.textContent = '上传失败';
-                        statusElement.className = 'status error';
-                    }
-                    
-                    // 检查是否所有文件都处理完毕
-                    if (successCount + errorCount === files.length) {
-                        if (errorCount === 0) {
-                            showMessage('所有文件上传成功 (' + successCount + '个)', 'success');
-                            fileInput.value = '';
-                            filenameInput.value = '';
-                            loadFiles();
-                        } else {
-                            showMessage('上传完成: ' + successCount + '个成功, ' + errorCount + '个失败', 'warning');
-                        }
-                    }
-                    
-                } catch (error) {
-                    errorCount++;
-                    statusElement.textContent = '上传异常';
-                    statusElement.className = 'status error';
-                    
-                    if (successCount + errorCount === files.length) {
-                            showMessage('上传完成: ' + successCount + '个成功, ' + errorCount + '个失败', 'warning');
-                        }
-                }
-            }
-        }
-        
-        // 更新进度条
-        function updateProgressBar(progressId, percent) {
-            const progressBar = document.getElementById(progressId);
-            if (progressBar) {
-                const progressFill = progressBar.querySelector('.progress-fill');
-                const progressText = progressBar.querySelector('.progress-text');
-                progressFill.style.width = percent + '%';
-                progressText.textContent = percent + '%';
-            }
-        }
-        
-        // 格式化文件大小
-        function formatFileSize(bytes) {
-            if (bytes === 0) return '0 B';
-            const k = 1024;
-            const sizes = ['B', 'KB', 'MB', 'GB'];
-            const i = Math.floor(Math.log(bytes) / Math.log(k));
-            return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
-        }
-
-        // 删除文件
-        async function deleteFile(filename, sha) {
-            if (!confirm('确定要删除这个文件吗？')) {
-                return;
-            }
-            
-            try {
-                const response = await fetch('${apiBase}', {
-                    method: 'DELETE',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ filename, sha })
-                });
-                
-                const data = await response.json();
-                
-                if (response.ok) {
-                    showMessage('文件删除成功', 'success');
-                    loadFiles();
-                } else {
-                    showMessage('删除失败: ' + (data.error || response.status), 'error');
-                }
-            } catch (error) {
-                showMessage('删除错误: ' + error.message, 'error');
-            }
-        }
-
-        // 格式化文件大小
-        function formatFileSize(bytes) {
-            if (bytes === 0) return '0 B';
-            const k = 1024;
-            const sizes = ['B', 'KB', 'MB', 'GB'];
-            const i = Math.floor(Math.log(bytes) / Math.log(k));
-            return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
-        }
-        
-        // 编辑文件 - 跳转到编辑页面
-        function editFile(filename, sha, filePath) {
-            // 跳转到编辑页面，使用URL参数传递文件信息
-            const editUrl = '/edit?filename=' + encodeURIComponent(filename) + 
-                          '&sha=' + encodeURIComponent(sha) + 
-                          '&path=' + encodeURIComponent(filePath);
-            window.location.href = editUrl;
-        }
-        
-        // 登出函数
-        function logout() {
-            if (confirm('确定要登出吗？')) {
-                fetch('/api/logout', {
-                    method: 'POST'
-                }).then(() => {
-                    window.location.href = '/login';
-                }).catch(error => {
-                    console.error('登出失败:', error);
-                    window.location.href = '/login';
-                });
-            }
-        }
-        
-        // 删除单个文件
-        function removeSelectedFile(index) {
-            const fileInput = document.getElementById('fileInput');
-            const files = Array.from(fileInput.files);
-            
-            // 从文件列表中移除指定文件
-            files.splice(index, 1);
-            
-            // 更新文件输入框
-            const newFileList = new DataTransfer();
-            files.forEach(file => newFileList.items.add(file));
-            fileInput.files = newFileList.files;
-            
-            // 触发change事件更新界面
-            fileInput.dispatchEvent(new Event('change'));
-        }
-        
-        // 清空文件列表
-        function clearSelectedFiles() {
-            const fileInput = document.getElementById('fileInput');
-            fileInput.value = '';
-            fileInput.dispatchEvent(new Event('change'));
-        }
-        
-        // 筛选文件列表
-        function filterSelectedFiles() {
-            const filterText = document.getElementById('fileFilter').value.toLowerCase();
-            const fileItems = document.querySelectorAll('.selected-file-item');
-            
-            fileItems.forEach(function(item) {
-                const fileName = item.querySelector('.file-name').textContent.toLowerCase();
-                if (fileName.includes(filterText)) {
-                    item.style.display = 'flex';
-                } else {
-                    item.style.display = 'none';
-                }
-            });
-        }
-        
-        // 更新已选择文件列表
-        function updateSelectedFilesList(files) {
-            const selectedFilesDiv = document.getElementById('selectedFiles');
-            const fileCountSpan = document.getElementById('fileCount');
-            const fileListDiv = document.getElementById('fileList');
-            
-            // 显示文件列表区域
-            selectedFilesDiv.style.display = 'block';
-            
-            // 更新文件数量
-            fileCountSpan.textContent = files.length;
-            
-            // 生成文件列表HTML
-            let fileListHTML = '';
-            for (let i = 0; i < files.length; i++) {
-                const file = files[i];
-                fileListHTML += '<div class="selected-file-item" style="display: flex; justify-content: space-between; align-items: center; padding: 5px; border-bottom: 1px solid #eee;">';
-                fileListHTML += '<div>';
-                fileListHTML += '<span class="file-name" style="font-weight: bold;">' + escapeHtml(file.name) + '</span>';
-                fileListHTML += '<span class="file-size" style="color: #666; margin-left: 10px;">(' + formatFileSize(file.size) + ')</span>';
-                fileListHTML += '</div>';
-                fileListHTML += '<button class="btn btn-danger" onclick="removeSelectedFile(' + i + ')" style="padding: 2px 6px; font-size: 12px;">删除</button>';
-                fileListHTML += '</div>';
-            }
-            
-            fileListDiv.innerHTML = fileListHTML;
-        }
-        
-        // 页面加载时自动获取文件列表
-        document.addEventListener('DOMContentLoaded', function() {
-            loadFiles();
-            
-            // 监听文件选择变化
-            const fileInput = document.getElementById('fileInput');
-            const filenameInput = document.getElementById('filenameInput');
-            
-            fileInput.addEventListener('change', function() {
-                const files = fileInput.files;
-                
-                if (files.length === 0) {
-                    // 没有选择文件
-                    filenameInput.placeholder = '自定义文件名（可选）';
-                    filenameInput.disabled = false;
-                    filenameInput.value = '';
-                    // 隐藏已选择文件列表
-                    document.getElementById('selectedFiles').style.display = 'none';
-                } else if (files.length === 1) {
-                    // 单个文件：提供完整文件名修改
-                    filenameInput.placeholder = '自定义文件名（可选）';
-                    filenameInput.disabled = false;
-                    filenameInput.value = files[0].name;
-                    // 显示已选择文件列表
-                    updateSelectedFilesList(files);
-                } else {
-                    // 多个文件：禁用文件名修改
-                    filenameInput.placeholder = '多文件上传时不可修改文件名';
-                    filenameInput.disabled = true;
-                    filenameInput.value = '';
-                    // 显示已选择文件列表
-                    updateSelectedFilesList(files);
-                }
-            });
-            
-            // 监听关闭按钮点击事件（动态添加）
-            document.addEventListener('click', function(e) {
-                if (e.target && e.target.id === 'closeProgress') {
-                    const uploadProgress = document.getElementById('uploadProgress');
-                    uploadProgress.style.display = 'none';
-                    uploadProgress.innerHTML = '';
-                }
-            });
-            
-            // 监听文件筛选输入
-            document.getElementById('fileFilter').addEventListener('input', function() {
-                filterSelectedFiles();
-            });
-        });
-    </script>
-</body>
-</html>`;
-}

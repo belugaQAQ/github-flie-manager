@@ -1,6 +1,6 @@
 name = "github-file-manager"
 main = "index.js"
-compatibility_date = "2026-03-28"
+compatibility_date = "2025-07-18"
 
 # 环境变量配置
 [vars]
