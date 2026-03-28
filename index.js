@@ -114,30 +114,12 @@ function getLoginHTML(error = '') {
     <link href="https://fonts.googleapis.com/icon?family=Material+Icons+Outlined" rel="stylesheet" />
     <script src="https://cdnjs.cloudflare.com/ajax/libs/mdui/2.1.4/mdui.global.js"></script>
     <style>
-        :root {
-            --md-sys-color-primary: #1e40af;
-            --md-sys-color-primary-container: #dbeafe;
-            --md-sys-color-secondary: #374151;
-            --md-sys-color-secondary-container: #e5e7eb;
-            --md-sys-color-error: #b91c1c;
-            --md-sys-color-error-container: #fef2f2;
-            --md-sys-color-background: #f8fafc;
-            --md-sys-color-surface: #ffffff;
-            --md-sys-color-surface-variant: #f1f5f9;
-            --md-sys-color-on-primary: #ffffff;
-            --md-sys-color-on-secondary: #ffffff;
-            --md-sys-color-on-error: #ffffff;
-            --md-sys-color-on-background: #1e293b;
-            --md-sys-color-on-surface: #1e293b;
-            --md-sys-color-on-surface-variant: #475569;
-        }
-        
         body {
             min-height: 100vh;
             display: flex;
             align-items: center;
             justify-content: center;
-            background: #1e40af;
+            background: rgb(var(--mdui-color-primary));
             margin: 0;
             font-family: 'Roboto', 'Helvetica', 'Arial', sans-serif;
         }
@@ -145,7 +127,7 @@ function getLoginHTML(error = '') {
         .login-container {
             width: 100%;
             max-width: 420px;
-            background: var(--md-sys-color-surface);
+            background: rgb(var(--mdui-color-surface));
             border-radius: 24px;
             box-shadow: 0 10px 50px rgba(0,0,0,0.15);
             overflow: hidden;
@@ -158,8 +140,8 @@ function getLoginHTML(error = '') {
         }
         
         .login-header {
-            background: var(--md-sys-color-primary);
-            color: var(--md-sys-color-on-primary);
+            background: rgb(var(--mdui-color-primary));
+            color: rgb(var(--mdui-color-on-primary));
             padding: 40px 32px;
             text-align: center;
             position: relative;
@@ -172,13 +154,19 @@ function getLoginHTML(error = '') {
         }
         
         .logo-icon {
-            background: var(--md-sys-color-primary-container);
-            color: var(--md-sys-color-primary);
+            background: rgb(var(--mdui-color-primary-container));
+            color: rgb(var(--mdui-color-primary));
             border-radius: 50%;
             padding: 16px;
             display: flex;
             align-items: center;
             justify-content: center;
+            transition: all 0.2s ease;
+        }
+        
+        .logo-icon:hover {
+            transform: scale(1.05);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
         }
         
         .login-body {
@@ -201,7 +189,7 @@ function getLoginHTML(error = '') {
             text-align: center;
             margin-top: 24px;
             font-size: 14px;
-            color: var(--md-sys-color-on-surface-variant);
+            color: rgb(var(--mdui-color-on-surface-variant));
         }
         
         @media (max-width: 480px) {
@@ -297,6 +285,11 @@ function getLoginHTML(error = '') {
         
         window.onload = function() {
             document.getElementById('username').focus();
+            // 恢复保存的主题色
+            const savedColor = localStorage.getItem('themeColor');
+            if (savedColor && typeof mdui !== 'undefined' && mdui.setColorScheme) {
+                mdui.setColorScheme(savedColor);
+            }
         };
     </script>
 </body>
@@ -778,34 +771,16 @@ function getPathSelectionHTML(pathConfigs) {
     <script src="https://cdnjs.cloudflare.com/ajax/libs/mdui/2.1.4/mdui.global.js"></script>
     <title>GitHub文件管理器 - 选择路径</title>
     <style>
-        :root {
-            --md-sys-color-primary: #1e40af;
-            --md-sys-color-primary-container: #dbeafe;
-            --md-sys-color-secondary: #374151;
-            --md-sys-color-secondary-container: #e5e7eb;
-            --md-sys-color-error: #b91c1c;
-            --md-sys-color-error-container: #fef2f2;
-            --md-sys-color-background: #f8fafc;
-            --md-sys-color-surface: #ffffff;
-            --md-sys-color-surface-variant: #f1f5f9;
-            --md-sys-color-on-primary: #ffffff;
-            --md-sys-color-on-secondary: #ffffff;
-            --md-sys-color-on-error: #ffffff;
-            --md-sys-color-on-background: #1e293b;
-            --md-sys-color-on-surface: #1e293b;
-            --md-sys-color-on-surface-variant: #475569;
-        }
-        
         body {
             font-family: 'Roboto', 'Helvetica', 'Arial', sans-serif;
             line-height: 1.6;
-            color: var(--md-sys-color-on-background);
-            background: #1e40af;
             min-height: 100vh;
             display: flex;
             align-items: center;
             justify-content: center;
             margin: 0;
+            background-color: rgb(var(--mdui-color-background));
+            color: rgb(var(--mdui-color-on-background));
         }
         
         .container {
@@ -816,24 +791,26 @@ function getPathSelectionHTML(pathConfigs) {
         }
         
         .card {
-            background: var(--md-sys-color-surface);
+            background: rgb(var(--mdui-color-surface));
             border-radius: 24px;
             box-shadow: 0 10px 50px rgba(0,0,0,0.15);
             overflow: hidden;
         }
         
         .card-header {
-            background: var(--md-sys-color-primary);
-            color: var(--md-sys-color-on-primary);
+            background: rgb(var(--mdui-color-primary));
+            color: rgb(var(--mdui-color-on-primary));
             padding: 32px;
-            text-align: center;
+            text-align: left;
             position: relative;
         }
         
-        .logout-btn {
+        .header-actions {
             position: absolute;
             top: 16px;
             right: 16px;
+            display: flex;
+            gap: 8px;
         }
         
         .card-body {
@@ -847,40 +824,86 @@ function getPathSelectionHTML(pathConfigs) {
         }
         
         .path-card {
-            background: var(--md-sys-color-surface-variant);
+            background: rgb(var(--mdui-color-surface));
             padding: 32px;
             border-radius: 16px;
             box-shadow: 0 2px 10px rgba(0,0,0,0.08);
             transition: all 0.3s ease;
             border: 1px solid transparent;
+            aspect-ratio: 1;
+            display: flex;
+            flex-direction: column;
         }
         
         .path-card:hover {
             transform: translateY(-5px);
             box-shadow: 0 8px 25px rgba(0,0,0,0.12);
-            border-color: var(--md-sys-color-primary);
-            background: var(--md-sys-color-secondary-container);
+            border-color: rgb(var(--mdui-color-primary));
+            background: rgb(var(--mdui-color-surface-variant));
+        }
+        
+        .path-card:active {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
         }
         
         .path-icon {
             margin-bottom: 20px;
             display: inline-block;
-            background: var(--md-sys-color-primary-container);
-            color: var(--md-sys-color-primary);
+            background: rgb(var(--mdui-color-secondary));
+            color: rgb(var(--mdui-color-on-secondary));
             border-radius: 12px;
             padding: 16px;
+            transition: all 0.2s ease;
+        }
+        
+        .path-card:hover .path-icon {
+            transform: scale(1.05);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
         }
         
         .path-name {
             font-weight: 600;
             margin-bottom: 12px;
-            color: var(--md-sys-color-on-surface);
+            color: rgb(var(--mdui-color-on-surface));
         }
         
         .path-info {
             font-size: 14px;
-            color: var(--md-sys-color-on-surface-variant);
+            color: rgb(var(--mdui-color-on-surface-variant));
             margin-bottom: 24px;
+        }
+        
+        .theme-dialog {
+            max-width: 500px;
+            border-radius: 16px;
+            border: none;
+            box-shadow: 0 10px 50px rgba(0,0,0,0.15);
+            background: rgb(var(--mdui-color-surface));
+            color: rgb(var(--mdui-color-on-surface));
+        }
+        
+        .theme-dialog::backdrop {
+            background: rgba(0, 0, 0, 0.5);
+        }
+        
+        .theme-color-input {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            margin: 24px 0;
+        }
+        
+        .color-preview {
+            width: 60px;
+            height: 60px;
+            border-radius: 50%;
+            border: 2px solid rgb(var(--mdui-color-surface-variant));
+            cursor: pointer;
+        }
+        
+        .color-input {
+            flex: 1;
         }
         
         @media (max-width: 768px) {
@@ -895,6 +918,11 @@ function getPathSelectionHTML(pathConfigs) {
             .path-card {
                 padding: 24px;
             }
+            
+            .header-actions {
+                flex-direction: column;
+                gap: 4px;
+            }
         }
     </style>
 </head>
@@ -904,7 +932,16 @@ function getPathSelectionHTML(pathConfigs) {
             <div class="card-header">
                 <h1 class="mdui-typo-headline-medium">GitHub文件管理器</h1>
                 <p class="mdui-typo-body-1">请选择要管理的文件夹路径</p>
-                <mdui-button class="logout-btn" variant="outlined" color="error" onclick="logout()">登出</mdui-button>
+                <div class="header-actions">
+                    <mdui-button variant='tonal' color='primary' onclick="openThemeDialog()">
+                        <mdui-icon slot='icon' name='palette--outlined'></mdui-icon>
+                        设置主题色
+                    </mdui-button>
+                    <mdui-button class="logout-btn" variant="tonal" color="error" onclick="logout()">
+                        <mdui-icon slot='icon' name='logout--outlined'></mdui-icon>
+                        登出
+                    </mdui-button>
+                </div>
             </div>
             
             <div class="card-body">
@@ -932,7 +969,61 @@ function getPathSelectionHTML(pathConfigs) {
         </div>
     </div>
     
+    <!-- 主题色设置对话框 -->
+    <dialog id="themeDialog" class="theme-dialog">
+        <div style="padding: 24px;">
+            <h2 class="mdui-typo-headline-small" style="margin-top: 0; margin-bottom: 24px;">设置主题色</h2>
+            <div class="theme-color-input">
+                <div class="color-preview" id="colorPreview" onclick="document.getElementById('colorInput').click()"></div>
+                <mdui-text-field 
+                    id="colorInput" 
+                    type="color" 
+                    label="选择主题色" 
+                    value="#1e40af" 
+                    class="color-input"
+                    onchange="updateColorPreview()"
+                ></mdui-text-field>
+            </div>
+            <p class="mdui-typo-body-2" style="margin-top: 16px; margin-bottom: 24px;">选择一个颜色，系统将自动生成一套完整的配色方案</p>
+            <div style="display: flex; justify-content: flex-end; gap: 8px;">
+                <mdui-button variant="text" onclick="document.getElementById('themeDialog').close()">取消</mdui-button>
+                <mdui-button variant="filled" color="primary" onclick="applyTheme()">应用</mdui-button>
+            </div>
+        </div>
+    </dialog>
+    
     <script>
+        function openThemeDialog() {
+            document.getElementById('themeDialog').showModal();
+        }
+        
+        function closeThemeDialog() {
+            document.getElementById('themeDialog').close();
+        }
+        
+        function updateColorPreview() {
+            const colorInput = document.getElementById('colorInput');
+            const colorPreview = document.getElementById('colorPreview');
+            colorPreview.style.backgroundColor = colorInput.value;
+        }
+        
+        function applyTheme() {
+            const colorInput = document.getElementById('colorInput');
+            const color = colorInput.value;
+            
+            // 使用mdui的setColorScheme函数设置主题色
+            if (typeof mdui !== 'undefined' && mdui.setColorScheme) {
+                mdui.setColorScheme(color);
+                // 保存主题色到本地存储
+                localStorage.setItem('themeColor', color);
+                alert('主题色已更新');
+            } else {
+                alert('mdui库未加载，请刷新页面重试');
+            }
+            
+            closeThemeDialog();
+        }
+        
         function logout() {
             if (confirm('确定要登出吗？')) {
                 fetch('/api/logout', {
@@ -945,6 +1036,16 @@ function getPathSelectionHTML(pathConfigs) {
                 });
             }
         }
+        
+        // 页面加载时恢复保存的主题色
+        window.onload = function() {
+            const savedColor = localStorage.getItem('themeColor');
+            if (savedColor && typeof mdui !== 'undefined' && mdui.setColorScheme) {
+                mdui.setColorScheme(savedColor);
+                document.getElementById('colorInput').value = savedColor;
+                updateColorPreview();
+            }
+        };
     </script>
 </body>
 </html>`;
@@ -976,34 +1077,25 @@ function getFileManagerHTML(pathConfig, pathConfigs, env) {
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/mdui/2.1.4/mdui.css" />
     <script src="https://cdnjs.cloudflare.com/ajax/libs/mdui/2.1.4/mdui.global.js"></script>
     <title>GitHub文件管理器 - ${escapeHtml(pathConfig.displayName)}</title>
+    <script>
+        // 页面加载时恢复保存的主题色
+        window.onload = function() {
+            const savedColor = localStorage.getItem('themeColor');
+            if (savedColor && typeof mdui !== 'undefined' && mdui.setColorScheme) {
+                mdui.setColorScheme(savedColor);
+            }
+        };
+    </script>
     <style>
-        :root {
-            --md-sys-color-primary: #1e40af;
-            --md-sys-color-primary-container: #dbeafe;
-            --md-sys-color-secondary: #374151;
-            --md-sys-color-secondary-container: #e5e7eb;
-            --md-sys-color-error: #b91c1c;
-            --md-sys-color-error-container: #fef2f2;
-            --md-sys-color-background: #f8fafc;
-            --md-sys-color-surface: #ffffff;
-            --md-sys-color-surface-variant: #f1f5f9;
-            --md-sys-color-on-primary: #ffffff;
-            --md-sys-color-on-secondary: #ffffff;
-            --md-sys-color-on-error: #ffffff;
-            --md-sys-color-on-background: #1e293b;
-            --md-sys-color-on-surface: #1e293b;
-            --md-sys-color-on-surface-variant: #475569;
-        }
-        
         body {
             font-family: 'Roboto', 'Helvetica', 'Arial', sans-serif;
             line-height: 1.6;
-            color: var(--md-sys-color-on-background);
-            background: var(--md-sys-color-background);
             min-height: 100vh;
             margin: 0;
             display: flex;
             flex-direction: column;
+            background-color: rgb(var(--mdui-color-background));
+            color: rgb(var(--mdui-color-on-background));
         }
         
         .app-container {
@@ -1014,8 +1106,8 @@ function getFileManagerHTML(pathConfig, pathConfigs, env) {
         
         .sidebar {
             width: 280px;
-            background: var(--md-sys-color-surface);
-            border-right: 1px solid var(--md-sys-color-surface-variant);
+            background: rgb(var(--mdui-color-surface));
+            border-right: 1px solid rgb(var(--mdui-color-surface-variant));
             display: flex;
             flex-direction: column;
             box-shadow: 0 0 10px rgba(0,0,0,0.05);
@@ -1023,19 +1115,19 @@ function getFileManagerHTML(pathConfig, pathConfigs, env) {
         
         .sidebar-header {
             padding: 24px;
-            border-bottom: 1px solid var(--md-sys-color-surface-variant);
+            border-bottom: 1px solid rgb(var(--mdui-color-surface-variant));
         }
         
         .sidebar-title {
             font-size: 18px;
             font-weight: 600;
             margin-bottom: 8px;
-            color: var(--md-sys-color-on-surface);
+            color: rgb(var(--mdui-color-on-surface));
         }
         
         .sidebar-subtitle {
             font-size: 14px;
-            color: var(--md-sys-color-on-surface-variant);
+            color: rgb(var(--mdui-color-on-surface-variant));
         }
         
         .path-list {
@@ -1056,18 +1148,27 @@ function getFileManagerHTML(pathConfig, pathConfigs, env) {
         }
         
         .path-item:hover {
-            background: var(--md-sys-color-surface-variant);
+            background: rgb(var(--mdui-color-surface-variant));
+        }
+        
+        .path-item:active {
+            background: rgb(var(--mdui-color-surface-variant));
+            transform: scale(0.98);
         }
         
         .path-item.active {
-            background: var(--md-sys-color-primary-container);
-            color: var(--md-sys-color-primary);
-            border-color: var(--md-sys-color-primary);
+            background: rgb(var(--mdui-color-primary-container));
+            color: rgb(var(--mdui-color-primary));
+            border-color: rgb(var(--mdui-color-primary));
+        }
+        
+        .path-item.active:hover {
+            background: rgb(var(--mdui-color-primary-container));
         }
         
         .sidebar-footer {
             padding: 16px;
-            border-top: 1px solid var(--md-sys-color-surface-variant);
+            border-top: 1px solid rgb(var(--mdui-color-surface-variant));
         }
         
         .main-content {
@@ -1078,9 +1179,9 @@ function getFileManagerHTML(pathConfig, pathConfigs, env) {
         }
         
         .main-header {
-            background: var(--md-sys-color-surface);
+            background: rgb(var(--mdui-color-surface));
             padding: 16px 24px;
-            border-bottom: 1px solid var(--md-sys-color-surface-variant);
+            border-bottom: 1px solid rgb(var(--mdui-color-surface-variant));
             display: flex;
             justify-content: space-between;
             align-items: center;
@@ -1089,7 +1190,7 @@ function getFileManagerHTML(pathConfig, pathConfigs, env) {
         .main-title {
             font-size: 20px;
             font-weight: 600;
-            color: var(--md-sys-color-on-surface);
+            color: rgb(var(--mdui-color-on-surface));
         }
         
         .header-actions {
@@ -1104,7 +1205,7 @@ function getFileManagerHTML(pathConfig, pathConfigs, env) {
         }
         
         .upload-section {
-            background: var(--md-sys-color-surface);
+            background: rgb(var(--mdui-color-surface));
             padding: 24px;
             border-radius: 12px;
             box-shadow: 0 2px 8px rgba(0,0,0,0.08);
@@ -1112,7 +1213,7 @@ function getFileManagerHTML(pathConfig, pathConfigs, env) {
         }
         
         .file-list {
-            background: var(--md-sys-color-surface);
+            background: rgb(var(--mdui-color-surface));
             border-radius: 12px;
             box-shadow: 0 2px 8px rgba(0,0,0,0.08);
             overflow: hidden;
@@ -1132,8 +1233,8 @@ function getFileManagerHTML(pathConfig, pathConfigs, env) {
         
         .file-tag {
             display: inline-block;
-            background: var(--md-sys-color-primary-container);
-            color: var(--md-sys-color-primary);
+            background: rgb(var(--mdui-color-secondary-container));
+            color: rgb(var(--mdui-color-secondary));
             padding: 6px 12px;
             border-radius: 16px;
             font-size: 14px;
@@ -1144,7 +1245,7 @@ function getFileManagerHTML(pathConfig, pathConfigs, env) {
         .empty-state {
             padding: 80px 20px;
             text-align: center;
-            color: var(--md-sys-color-on-surface-variant);
+            color: rgb(var(--mdui-color-on-surface-variant));
         }
         
         .empty-state mdui-icon {
@@ -1158,26 +1259,52 @@ function getFileManagerHTML(pathConfig, pathConfigs, env) {
         }
         
         .file-table th {
-            background: var(--md-sys-color-surface-variant);
+            background: rgb(var(--mdui-color-surface-variant));
             padding: 16px 24px;
             text-align: left;
             font-weight: 500;
-            color: var(--md-sys-color-on-surface-variant);
-            border-bottom: 1px solid var(--md-sys-color-surface-variant);
+            color: rgb(var(--mdui-color-on-surface-variant));
+            border-bottom: 1px solid rgb(var(--mdui-color-surface-variant));
         }
         
         .file-table td {
             padding: 16px 24px;
-            border-bottom: 1px solid var(--md-sys-color-surface-variant);
+            border-bottom: 1px solid rgb(var(--mdui-color-surface-variant));
             vertical-align: middle;
         }
         
+        .file-table tr {
+            transition: all 0.2s ease;
+        }
+        
         .file-table tr:hover {
-            background: var(--md-sys-color-surface-variant);
+            background: rgb(var(--mdui-color-surface-variant));
+        }
+        
+        .file-table tr:active {
+            background: rgb(var(--mdui-color-surface-variant));
         }
         
         .file-table tr:last-child td {
             border-bottom: none;
+        }
+        
+        .file-tag {
+            display: inline-block;
+            background: rgb(var(--mdui-color-secondary-container));
+            color: rgb(var(--mdui-color-secondary));
+            padding: 6px 12px;
+            border-radius: 16px;
+            font-size: 14px;
+            margin-right: 8px;
+            margin-bottom: 8px;
+            transition: all 0.2s ease;
+        }
+        
+        .file-tag:hover {
+            background: rgb(var(--mdui-color-secondary));
+            color: rgb(var(--mdui-color-on-secondary));
+            transform: scale(1.05);
         }
         
         @media (max-width: 768px) {
@@ -1189,7 +1316,7 @@ function getFileManagerHTML(pathConfig, pathConfigs, env) {
                 width: 100%;
                 height: 200px;
                 border-right: none;
-                border-bottom: 1px solid var(--md-sys-color-surface-variant);
+                border-bottom: 1px solid rgb(var(--mdui-color-surface-variant));
             }
             
             .path-list {
@@ -1275,8 +1402,7 @@ function getFileManagerHTML(pathConfig, pathConfigs, env) {
         <div style="position: relative; height: 100%;">
             <mdui-navigation-rail contained divider value="${pathConfig.name}">
                 <div slot="top" style="padding: 16px; text-align: center;">
-                    <div style="font-size: 16px; font-weight: 600; margin-bottom: 4px;">GitHub文件管理器</div>
-                    <div style="font-size: 12px; color: var(--md-sys-color-on-surface-variant);">选择文件夹路径</div>
+                    <div style="font-size: 16px; font-weight: 600; margin-bottom: 4px;">GitHub<br>文件<br>管理器</div>
                 </div>
                 
                 ${pathConfigs.map(config => `
@@ -1290,11 +1416,11 @@ function getFileManagerHTML(pathConfig, pathConfigs, env) {
                 `).join('')}
                 
                 <mdui-button-icon 
-                    icon="logout--outlined" 
-                    slot="bottom" 
-                    color="error"
+                    icon='logout--outlined' 
+                    slot='bottom' 
+                    color='error'
                     onclick="if(confirm('确定要登出吗？')) { fetch('/api/logout', { method: 'POST' }).then(() => window.location.href = '/login').catch(() => window.location.href = '/login'); }"
-                    style="margin-bottom: 16px;"></mdui-button-icon>
+                    style='margin-bottom: 16px;'></mdui-button-icon>
             </mdui-navigation-rail>
         </div>
         
@@ -1302,9 +1428,13 @@ function getFileManagerHTML(pathConfig, pathConfigs, env) {
             <div class="main-header">
                 <div class="main-title">${escapeHtml(pathConfig.displayName)}</div>
                 <div class="header-actions">
-                    <mdui-button variant="outlined" color="primary" onclick="window.location.href='/'">
-                        <mdui-icon slot="icon" name="arrow_back--outlined"></mdui-icon>
+                    <mdui-button variant='outlined' color='primary' onclick="window.location.href='/';">
+                        <mdui-icon slot='icon' name='arrow_back--outlined'></mdui-icon>
                         返回选择
+                    </mdui-button>
+                    <mdui-button variant='outlined' color='primary' onclick="openThemeDialog()">
+                        <mdui-icon slot='icon' name='palette--outlined'></mdui-icon>
+                        设置主题色
                     </mdui-button>
                 </div>
             </div>
@@ -1312,14 +1442,18 @@ function getFileManagerHTML(pathConfig, pathConfigs, env) {
             <div class="content-area">
                 <div class="upload-section">
                     <h2 class="mdui-typo-headline-small">上传文件</h2>
-                    <div style="margin-top: 20px; display: flex; gap: 12px; flex-wrap: wrap;">
-                        <mdui-file-picker id="filePicker" multiple accept="*/*" label="选择文件"></mdui-file-picker>
-                        <mdui-button id="uploadBtn" variant="filled" color="primary" onclick="window.uploadFiles()" size="medium">
-                            <mdui-icon slot="icon" name="upload--outlined"></mdui-icon>
+                    <div style="margin-top: 20px; display: flex; gap: 12px; flex-wrap: wrap; align-items: center;">
+                        <input type="file" id="fileInput" multiple style="display: none;" />
+                        <mdui-button variant='outlined' color='primary' onclick="document.getElementById('fileInput').click()" size='medium' style='flex: 1; min-width: 200px;'>
+                        <mdui-icon slot='icon' name='folder_open--outlined'></mdui-icon>
+                            选择文件
+                        </mdui-button>
+                        <mdui-button id='uploadBtn' variant='filled' color='primary' onclick='window.uploadFiles()' size='medium'>
+                            <mdui-icon slot='icon' name='upload--outlined'></mdui-icon>
                             开始上传
                         </mdui-button>
-                        <mdui-button id="refreshBtn" variant="outlined" color="primary" onclick="window.getFileList()" size="medium">
-                            <mdui-icon slot="icon" name="refresh--outlined"></mdui-icon>
+                        <mdui-button id='refreshBtn' variant='outlined' color='primary' onclick='window.getFileList()' size='medium'>
+                            <mdui-icon slot='icon' name='refresh--outlined'></mdui-icon>
                             刷新文件列表
                         </mdui-button>
                     </div>
@@ -1388,7 +1522,7 @@ function getFileManagerHTML(pathConfig, pathConfigs, env) {
                                 html += '<tr>';
                                 html += '<td>';
                                 html += '<div style="font-weight: 500;">' + escapeHtml(file.name) + '</div>';
-                                html += '<div style="font-size: 12px; color: var(--md-sys-color-on-surface-variant);">' + escapeHtml(file.path) + '</div>';
+                                html += '<div style="font-size: 12px; color: rgb(var(--mdui-color-on-surface-variant));">' + escapeHtml(file.path) + '</div>';
                                 html += '</td>';
                                 html += '<td>' + fileSize + '</td>';
                                 html += '<td>';
@@ -1509,7 +1643,7 @@ function getFileManagerHTML(pathConfig, pathConfigs, env) {
         
         function uploadFiles() {
             try {
-                const filePicker = document.getElementById('filePicker');
+                const filePicker = document.getElementById('fileInput');
                 const files = filePicker.files;
                 
                 if (!files || files.length === 0) {
@@ -1628,7 +1762,7 @@ function getFileManagerHTML(pathConfig, pathConfigs, env) {
             }
         }
         
-        document.getElementById('filePicker').addEventListener('change', function(e) {
+        document.getElementById('fileInput').addEventListener('change', function(e) {
             const files = e.target.files;
             const selectedFilesContainer = document.getElementById('selectedFiles');
             
@@ -1655,7 +1789,68 @@ function getFileManagerHTML(pathConfig, pathConfigs, env) {
         
         document.addEventListener('DOMContentLoaded', function() {
             window.getFileList();
+            // 恢复保存的主题色
+            const savedColor = localStorage.getItem('themeColor');
+            if (savedColor && typeof mdui !== 'undefined' && mdui.setColorScheme) {
+                mdui.setColorScheme(savedColor);
+            }
         });
+    </script>
+    
+    <!-- 主题色设置对话框 -->
+    <dialog id="themeDialog" class="theme-dialog">
+        <div style="padding: 24px;">
+            <h2 class="mdui-typo-headline-small" style="margin-top: 0; margin-bottom: 24px;">设置主题色</h2>
+            <div class="theme-color-input">
+                <div class="color-preview" id="colorPreview" onclick="document.getElementById('colorInput').click()"></div>
+                <mdui-text-field 
+                    id="colorInput" 
+                    type="color" 
+                    label="选择主题色" 
+                    value="#1e40af" 
+                    class="color-input"
+                    onchange="updateColorPreview()"
+                ></mdui-text-field>
+            </div>
+            <p class="mdui-typo-body-2" style="margin-top: 16px; margin-bottom: 24px;">选择一个颜色，系统将自动生成一套完整的配色方案</p>
+            <div style="display: flex; justify-content: flex-end; gap: 8px;">
+                <mdui-button variant="text" onclick="document.getElementById('themeDialog').close()">取消</mdui-button>
+                <mdui-button variant="filled" color="primary" onclick="applyTheme()">应用</mdui-button>
+            </div>
+        </div>
+    </dialog>
+    
+    <script>
+        function openThemeDialog() {
+            document.getElementById('themeDialog').showModal();
+        }
+        
+        function updateColorPreview() {
+            const colorInput = document.getElementById('colorInput');
+            const colorPreview = document.getElementById('colorPreview');
+            colorPreview.style.backgroundColor = colorInput.value;
+        }
+        
+        function applyTheme() {
+            const colorInput = document.getElementById('colorInput');
+            const color = colorInput.value;
+            
+            // 使用mdui的setColorScheme函数设置主题色
+            if (typeof mdui !== 'undefined' && mdui.setColorScheme) {
+                mdui.setColorScheme(color);
+                // 保存主题色到本地存储
+                localStorage.setItem('themeColor', color);
+                alert('主题色已更新');
+            } else {
+                alert('mdui库未加载，请刷新页面重试');
+            }
+            
+            document.getElementById('themeDialog').close();
+        }
+        
+        function closeThemeDialog() {
+            document.getElementById('themeDialog').close();
+        }
     </script>
 </body>
 </html>`;
@@ -1691,31 +1886,13 @@ function getEditFileHTML(filename, sha, filePath, env) {
     <script src="https://unpkg.com/mdui@2/mdui.global.js"></script>
     <title>编辑文件 - ${escapeHtml(filename)}</title>
     <style>
-        :root {
-            --md-sys-color-primary: #1e40af;
-            --md-sys-color-primary-container: #dbeafe;
-            --md-sys-color-secondary: #374151;
-            --md-sys-color-secondary-container: #e5e7eb;
-            --md-sys-color-error: #b91c1c;
-            --md-sys-color-error-container: #fef2f2;
-            --md-sys-color-background: #f8fafc;
-            --md-sys-color-surface: #ffffff;
-            --md-sys-color-surface-variant: #f1f5f9;
-            --md-sys-color-on-primary: #ffffff;
-            --md-sys-color-on-secondary: #ffffff;
-            --md-sys-color-on-error: #ffffff;
-            --md-sys-color-on-background: #1e293b;
-            --md-sys-color-on-surface: #1e293b;
-            --md-sys-color-on-surface-variant: #475569;
-        }
-        
         body {
             font-family: 'Roboto', 'Helvetica', 'Arial', sans-serif;
             line-height: 1.6;
-            color: var(--md-sys-color-on-background);
-            background: var(--md-sys-color-background);
             min-height: 100vh;
             margin: 0;
+            background-color: rgb(var(--mdui-color-background));
+            color: rgb(var(--mdui-color-on-background));
         }
         
         .container {
@@ -1725,8 +1902,8 @@ function getEditFileHTML(filename, sha, filePath, env) {
         }
         
         .header {
-            background: var(--md-sys-color-primary);
-            color: var(--md-sys-color-on-primary);
+            background: rgb(var(--mdui-color-primary));
+            color: rgb(var(--mdui-color-on-primary));
             padding: 24px;
             border-radius: 16px;
             margin-bottom: 24px;
@@ -1741,7 +1918,7 @@ function getEditFileHTML(filename, sha, filePath, env) {
         }
         
         .edit-section {
-            background: var(--md-sys-color-surface);
+            background: rgb(var(--mdui-color-surface));
             padding: 32px;
             border-radius: 12px;
             box-shadow: 0 2px 8px rgba(0,0,0,0.08);
@@ -1755,27 +1932,46 @@ function getEditFileHTML(filename, sha, filePath, env) {
             display: block;
             margin-bottom: 12px;
             font-weight: 500;
-            color: var(--md-sys-color-on-surface);
+            color: rgb(var(--mdui-color-on-surface));
         }
         
         textarea {
             width: 100%;
             min-height: 500px;
             padding: 16px;
-            border: 1px solid var(--md-sys-color-surface-variant);
+            border: 1px solid rgb(var(--mdui-color-surface-variant));
             border-radius: 8px;
             font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
             font-size: 14px;
             resize: vertical;
-            background: var(--md-sys-color-surface);
-            color: var(--md-sys-color-on-surface);
-            transition: border-color 0.2s ease;
+            background: rgb(var(--mdui-color-surface));
+            color: rgb(var(--mdui-color-on-surface));
+            transition: all 0.2s ease;
         }
         
         textarea:focus {
             outline: none;
-            border-color: var(--md-sys-color-primary);
-            box-shadow: 0 0 0 2px var(--md-sys-color-primary-container);
+            border-color: rgb(var(--mdui-color-primary));
+            box-shadow: 0 0 0 2px rgb(var(--mdui-color-primary-container));
+        }
+        
+        textarea:hover {
+            border-color: rgb(var(--mdui-color-on-surface-variant));
+        }
+        
+        .back-btn {
+            position: absolute;
+            top: 16px;
+            left: 16px;
+            transition: all 0.2s ease;
+        }
+        
+        .back-btn:hover {
+            transform: scale(1.05);
+        }
+        
+        .back-btn:active {
+            transform: scale(0.95);
         }
         
         .form-actions {
@@ -1957,6 +2153,11 @@ function getEditFileHTML(filename, sha, filePath, env) {
         
         window.onload = function() {
             loadFileContent();
+            // 恢复保存的主题色
+            const savedColor = localStorage.getItem('themeColor');
+            if (savedColor && typeof mdui !== 'undefined' && mdui.setColorScheme) {
+                mdui.setColorScheme(savedColor);
+            }
         };
         
         function escapeHtml(str) {
