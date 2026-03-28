@@ -1399,15 +1399,15 @@ function getFileManagerHTML(pathConfig, pathConfigs, env) {
                                 const fileSha = JSON.stringify(file.sha);
                                 
                                 if (canPreviewFile) {
-                                    html += '<mdui-button variant="text" color="primary" size="small" onclick="window.previewFile(' + filePath + ', ' + fileName + ')"><mdui-icon slot="icon" name="visibility--outlined"></mdui-icon>查看</mdui-button>';
+                                    html += "<mdui-button variant='text' color='primary' size='small' onclick='window.previewFile(" + filePath + ", " + fileName + ")'><mdui-icon slot='icon' name='visibility--outlined'></mdui-icon>查看</mdui-button>";
                                 }
                                 
-                                html += '<mdui-button variant="text" color="primary" size="small" onclick="window.downloadFile(' + filePath + ', ' + fileName + ')"><mdui-icon slot="icon" name="download--outlined"></mdui-icon>下载</mdui-button>';
-                                html += '<mdui-button variant="text" color="error" size="small" onclick="window.deleteFile(' + filePath + ', ' + fileSha + ')"><mdui-icon slot="icon" name="delete--outlined"></mdui-icon>删除</mdui-button>';
+                                html += "<mdui-button variant='text' color='primary' size='small' onclick='window.downloadFile(" + filePath + ", " + fileName + ")'><mdui-icon slot='icon' name='download--outlined'></mdui-icon>下载</mdui-button>";
+                                html += "<mdui-button variant='text' color='error' size='small' onclick='window.deleteFile(" + filePath + ", " + fileSha + ")'><mdui-icon slot='icon' name='delete--outlined'></mdui-icon>删除</mdui-button>";
                                 
                                 // 文本文件显示编辑按钮
                                 if (canPreviewFile && !file.name.match(/\\.(jpg|jpeg|png|gif|bmp|webp|pdf)$/i)) {
-                                    html += '<mdui-button variant="text" color="primary" size="small" onclick="window.editFile(' + filePath + ', ' + fileSha + ')"><mdui-icon slot="icon" name="edit--outlined"></mdui-icon>编辑</mdui-button>';
+                                    html += "<mdui-button variant='text' color='primary' size='small' onclick='window.editFile(" + filePath + ", " + fileSha + ")'><mdui-icon slot='icon' name='edit--outlined'></mdui-icon>编辑</mdui-button>";
                                 }
                                 
                                 html += '</div>';
