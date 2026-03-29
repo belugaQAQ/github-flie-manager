@@ -2,3 +2,5 @@ node_modules/*
 dist/
 .wrangler/
 .trae/
+wrangler.toml
+.env
