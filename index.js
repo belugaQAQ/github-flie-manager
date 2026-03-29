@@ -124,7 +124,7 @@ function getMaterialWebHead(title) {
     <title>${title}</title>`;
 }
 
-// Material Web 动态色彩 CSS 变量默认值
+// Material Web 动态色彩 CSS 变量默认值（含深色模式）
 function getMD3ColorTokens() {
   return `
         :root {
@@ -167,109 +167,215 @@ function getMD3ColorTokens() {
             --md-sys-shape-corner-large: 12px;
             --md-sys-shape-corner-medium: 8px;
             --md-sys-shape-corner-small: 4px;
+            color-scheme: light;
+        }
+        [data-theme="dark"] {
+            --md-sys-color-primary: #adc6ff;
+            --md-sys-color-on-primary: #003062;
+            --md-sys-color-primary-container: #00478a;
+            --md-sys-color-on-primary-container: #d7e3ff;
+            --md-sys-color-secondary: #bec6dc;
+            --md-sys-color-on-secondary: #263041;
+            --md-sys-color-secondary-container: #3c4759;
+            --md-sys-color-on-secondary-container: #dae2f9;
+            --md-sys-color-tertiary: #debcde;
+            --md-sys-color-on-tertiary: #3f2844;
+            --md-sys-color-tertiary-container: #573f5b;
+            --md-sys-color-on-tertiary-container: #fad8fd;
+            --md-sys-color-error: #ffb4ab;
+            --md-sys-color-on-error: #690005;
+            --md-sys-color-error-container: #93000a;
+            --md-sys-color-on-error-container: #ffdad6;
+            --md-sys-color-surface: #111318;
+            --md-sys-color-on-surface: #e1e2e8;
+            --md-sys-color-surface-variant: #44474f;
+            --md-sys-color-on-surface-variant: #c4c6d0;
+            --md-sys-color-background: #111318;
+            --md-sys-color-on-background: #e1e2e8;
+            --md-sys-color-outline: #8e9099;
+            --md-sys-color-outline-variant: #44474f;
+            --md-sys-color-inverse-surface: #e1e2e8;
+            --md-sys-color-inverse-on-surface: #2e3036;
+            --md-sys-color-inverse-primary: #1e40af;
+            --md-sys-color-surface-dim: #111318;
+            --md-sys-color-surface-bright: #37393f;
+            --md-sys-color-surface-container-lowest: #0c0e13;
+            --md-sys-color-surface-container-low: #191c20;
+            --md-sys-color-surface-container: #1d2024;
+            --md-sys-color-surface-container-high: #282a2f;
+            --md-sys-color-surface-container-highest: #33353a;
+            color-scheme: dark;
+        }
+        body {
+            transition: background-color 0.3s ease, color 0.3s ease;
         }`;
 }
 
-// 动态色彩应用脚本（增强版，生成完整的MD3配色方案）
+// 动态色彩应用脚本（使用 material-color-utilities 生成标准 MD3 配色）
 function getDynamicColorScript() {
   return `
-        function applyDynamicColor(color) {
-            try {
-                const root = document.documentElement;
-                
-                // 解析主色
-                const r = parseInt(color.slice(1, 3), 16);
-                const g = parseInt(color.slice(3, 5), 16);
-                const b = parseInt(color.slice(5, 7), 16);
-                
-                // 计算亮度
-                const brightness = (r * 299 + g * 587 + b * 114) / 1000;
-                
-                // 主色系
-                root.style.setProperty('--md-sys-color-primary', color);
-                root.style.setProperty('--md-sys-color-primary-container', 
-                    \`rgb(\${Math.min(255, r + 60)}, \${Math.min(255, g + 60)}, \${Math.min(255, b + 60)})\`);
-                root.style.setProperty('--md-sys-color-on-primary', brightness > 128 ? '#000000' : '#ffffff');
-                root.style.setProperty('--md-sys-color-on-primary-container', 
-                    \`rgb(\${Math.max(0, r - 40)}, \${Math.max(0, g - 40)}, \${Math.max(0, b - 40)})\`);
-                
-                // 次色系（主色的旋转色）
-                const secondaryColor = rotateColor(r, g, b, 30);
-                root.style.setProperty('--md-sys-color-secondary', \`rgb(\${secondaryColor.r}, \${secondaryColor.g}, \${secondaryColor.b})\`);
-                root.style.setProperty('--md-sys-color-secondary-container', 
-                    \`rgb(\${Math.min(255, secondaryColor.r + 60)}, \${Math.min(255, secondaryColor.g + 60)}, \${Math.min(255, secondaryColor.b + 60)})\`);
-                root.style.setProperty('--md-sys-color-on-secondary', '#ffffff');
-                root.style.setProperty('--md-sys-color-on-secondary-container', 
-                    \`rgb(\${Math.max(0, secondaryColor.r - 40)}, \${Math.max(0, secondaryColor.g - 40)}, \${Math.max(0, secondaryColor.b - 40)})\`);
-                
-                // 第三色系（主色的互补色）
-                const tertiaryColor = rotateColor(r, g, b, 120);
-                root.style.setProperty('--md-sys-color-tertiary', \`rgb(\${tertiaryColor.r}, \${tertiaryColor.g}, \${tertiaryColor.b})\`);
-                root.style.setProperty('--md-sys-color-tertiary-container', 
-                    \`rgb(\${Math.min(255, tertiaryColor.r + 60)}, \${Math.min(255, tertiaryColor.g + 60)}, \${Math.min(255, tertiaryColor.b + 60)})\`);
-                root.style.setProperty('--md-sys-color-on-tertiary', '#ffffff');
-                root.style.setProperty('--md-sys-color-on-tertiary-container', 
-                    \`rgb(\${Math.max(0, tertiaryColor.r - 40)}, \${Math.max(0, tertiaryColor.g - 40)}, \${Math.max(0, tertiaryColor.b - 40)})\`);
-                
-                // 错误色（固定为红色系）
-                root.style.setProperty('--md-sys-color-error', '#ba1a1a');
-                root.style.setProperty('--md-sys-color-error-container', '#ffdad6');
-                root.style.setProperty('--md-sys-color-on-error', '#ffffff');
-                root.style.setProperty('--md-sys-color-on-error-container', '#410002');
-                
-                // 表面色和背景色
-                root.style.setProperty('--md-sys-color-surface', '#f8f9ff');
-                root.style.setProperty('--md-sys-color-on-surface', '#191c20');
-                root.style.setProperty('--md-sys-color-surface-variant', '#e1e2ec');
-                root.style.setProperty('--md-sys-color-on-surface-variant', '#44474f');
-                root.style.setProperty('--md-sys-color-background', '#f8f9ff');
-                root.style.setProperty('--md-sys-color-on-background', '#191c20');
-                root.style.setProperty('--md-sys-color-outline', '#74777f');
-                root.style.setProperty('--md-sys-color-outline-variant', '#c4c6d0');
-                
-                // 反转色
-                const invertedBrightness = 255 - brightness;
-                root.style.setProperty('--md-sys-color-inverse-surface', \`rgb(\${invertedBrightness}, \${invertedBrightness}, \${invertedBrightness})\`);
-                root.style.setProperty('--md-sys-color-inverse-on-surface', brightness > 128 ? '#000000' : '#ffffff');
-                root.style.setProperty('--md-sys-color-inverse-primary', \`rgb(\${Math.min(255, r + 80)}, \${Math.min(255, g + 80)}, \${Math.min(255, b + 80)})\`);
-                
-            } catch (e) {
-                console.warn('Dynamic color generation failed:', e);
-            }
-        }
-        
-        // 颜色旋转函数（生成和谐配色）
-        function rotateColor(r, g, b, angle) {
-            const cos = Math.cos(angle * Math.PI / 180);
-            const sin = Math.sin(angle * Math.PI / 180);
-            
-            const newR = Math.round((r * cos + g * sin) * 0.5 + (r * 0.5));
-            const newG = Math.round((g * cos + b * sin) * 0.5 + (g * 0.5));
-            const newB = Math.round((b * cos + r * sin) * 0.5 + (b * 0.5));
-            
-            return {
-                r: Math.max(0, Math.min(255, newR)),
-                g: Math.max(0, Math.min(255, newG)),
-                b: Math.max(0, Math.min(255, newB))
-            };
+        let _mcuModule = null;
+        let _lightScheme = null;
+        let _darkScheme = null;
+
+        // ARGB 整数转 hex 字符串
+        function argbToHex(argb) {
+            return '#' + ((argb & 0xffffff).toString(16).padStart(6, '0'));
         }
 
-        function restoreThemeColor() {
-            const savedColor = localStorage.getItem('themeColor');
-            if (savedColor) {
-                applyDynamicColor(savedColor);
+        // 从 MCU scheme 对象提取所有 MD3 颜色令牌
+        function extractSchemeTokens(scheme) {
+            const props = [
+                'primary','onPrimary','primaryContainer','onPrimaryContainer',
+                'secondary','onSecondary','secondaryContainer','onSecondaryContainer',
+                'tertiary','onTertiary','tertiaryContainer','onTertiaryContainer',
+                'error','onError','errorContainer','onErrorContainer',
+                'surface','onSurface','surfaceVariant','onSurfaceVariant',
+                'background','onBackground','outline','outlineVariant',
+                'inverseSurface','inverseOnSurface','inversePrimary',
+                'surfaceDim','surfaceBright',
+                'surfaceContainerLowest','surfaceContainerLow',
+                'surfaceContainer','surfaceContainerHigh','surfaceContainerHighest'
+            ];
+            const tokens = {};
+            for (const prop of props) {
+                if (scheme[prop] !== undefined) {
+                    tokens[prop] = argbToHex(scheme[prop]);
+                }
+            }
+            return tokens;
+        }
+
+        // 将颜色令牌应用到 :root CSS 变量
+        function applySchemeTokens(tokens) {
+            const root = document.documentElement;
+            const prefix = '--md-sys-color-';
+            for (const [key, value] of Object.entries(tokens)) {
+                root.style.setProperty(prefix + key, value);
             }
         }
-        
+
+        // 动态加载 material-color-utilities
+        async function loadMCU() {
+            if (_mcuModule) return _mcuModule;
+            try {
+                _mcuModule = await import('https://cdn.jsdelivr.net/npm/@material/material-color-utilities@0.4.0/+esm');
+                return _mcuModule;
+            } catch (e) {
+                console.warn('Failed to load material-color-utilities:', e);
+                return null;
+            }
+        }
+
+        // 从种子色生成 light/dark 双方案并缓存
+        async function generateSchemes(hexColor) {
+            const mcu = await loadMCU();
+            if (!mcu) return false;
+            try {
+                const { argbFromHex, Hct, SchemeTonalSpot } = mcu;
+                const sourceArgb = argbFromHex(hexColor);
+                const sourceHct = Hct.fromInt(sourceArgb);
+                _lightScheme = new SchemeTonalSpot(sourceHct, false, 0.0);
+                _darkScheme = new SchemeTonalSpot(sourceHct, true, 0.0);
+                return true;
+            } catch (e) {
+                console.warn('Scheme generation failed:', e);
+                return false;
+            }
+        }
+
+        // 应用当前模式的配色方案
+        function applyCurrentScheme() {
+            const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+            const scheme = isDark ? _darkScheme : _lightScheme;
+            if (!scheme) return;
+            const tokens = extractSchemeTokens(scheme);
+            applySchemeTokens(tokens);
+        }
+
+        // 用 MCU 从种子色生成 MD3 配色并应用（替换旧的 applyDynamicColor）
+        async function applyDynamicColor(color) {
+            const ok = await generateSchemes(color);
+            if (ok) {
+                applyCurrentScheme();
+            }
+        }
+
+        // 深色模式切换
+        function toggleDarkMode(forceState) {
+            const html = document.documentElement;
+            const currentIsDark = html.getAttribute('data-theme') === 'dark';
+            const isDark = forceState !== undefined ? forceState : !currentIsDark;
+            
+            if (isDark) {
+                html.setAttribute('data-theme', 'dark');
+            } else {
+                html.removeAttribute('data-theme');
+            }
+            localStorage.setItem('darkMode', isDark ? 'true' : 'false');
+            // 如果已有 MCU 生成的方案，实时应用
+            applyCurrentScheme();
+            // 更新所有深色模式切换按钮图标
+            updateDarkModeIcons(isDark);
+            // 更新主题对话框中的 switch（如果存在）
+            const sw = document.getElementById('darkModeSwitch');
+            if (sw) sw.checked = isDark;
+        }
+
+        function updateDarkModeIcons(isDark) {
+            const icon = isDark ? 'dark_mode' : 'light_mode';
+            document.querySelectorAll('[data-dark-toggle]').forEach(function(btn) {
+                btn.icon = icon;
+                btn.setAttribute('aria-label', isDark ? '切换到浅色模式' : '切换到深色模式');
+            });
+        }
+
+        // 初始化深色模式（页面加载时调用）
+        function initDarkMode() {
+            const saved = localStorage.getItem('darkMode');
+            let isDark;
+            if (saved !== null) {
+                isDark = saved === 'true';
+            } else {
+                isDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+            }
+            if (isDark) {
+                document.documentElement.setAttribute('data-theme', 'dark');
+            }
+            updateDarkModeIcons(isDark);
+            const sw = document.getElementById('darkModeSwitch');
+            if (sw) sw.checked = isDark;
+        }
+
+        // 恢复主题色（页面加载时调用）
+        async function restoreThemeColor() {
+            initDarkMode();
+            const savedColor = localStorage.getItem('themeColor');
+            if (savedColor) {
+                await applyDynamicColor(savedColor);
+            } else {
+                // 如果没有保存的颜色，使用默认主题色
+                await applyDynamicColor('#1e40af');
+            }
+        }
+
         // 主题色对话框相关函数
         function openThemeDialog() {
             const dialog = document.getElementById('themeDialog');
+            const sw = document.getElementById('darkModeSwitch');
+            if (sw) {
+                sw.checked = document.documentElement.getAttribute('data-theme') === 'dark';
+            }
             dialog.show();
         }
 
         function updateColorPreview() {
             const colorInput = document.getElementById('colorInput');
-            document.getElementById('colorPreview').style.backgroundColor = colorInput.value;
+            const preview = document.getElementById('colorPreview');
+            // 使用CSS变量或直接样式更新预览
+            preview.style.backgroundColor = colorInput.value;
+            // 同时更新CSS变量以保持一致性
+            preview.style.setProperty('--preview-color', colorInput.value);
         }
 
         function extractColorFromImage(event) {
@@ -314,9 +420,14 @@ function getDynamicColorScript() {
             reader.readAsDataURL(file);
         }
 
-        function applyTheme() {
+        async function applyTheme() {
             const color = document.getElementById('colorInput').value;
-            applyDynamicColor(color);
+            // 同步切换深色模式
+            const sw = document.getElementById('darkModeSwitch');
+            if (sw) {
+                toggleDarkMode(sw.checked);
+            }
+            await applyDynamicColor(color);
             localStorage.setItem('themeColor', color);
             showMessage('主题色已更新', false);
             document.getElementById('themeDialog').close();
@@ -350,7 +461,7 @@ function getLoginHTML(error = '') {
             display: flex;
             align-items: center;
             justify-content: center;
-            background: var(--md-sys-color-primary);
+            background: var(--md-sys-color-background);
             margin: 0;
             font-family: 'Roboto', 'Helvetica', 'Arial', sans-serif;
             transition: background 0.3s ease;
@@ -437,6 +548,11 @@ function getLoginHTML(error = '') {
     </style>
 </head>
 <body>
+    <div style="position: fixed; top: 16px; right: 16px; z-index: 100;">
+        <md-filled-icon-button data-dark-toggle aria-label="切换到深色模式" onclick="toggleDarkMode()">
+          <md-icon>routine</md-icon>
+        </md-filled-icon-button>
+    </div>
     <div class="login-container">
         <div class="login-header">
             <div class="logo">
@@ -1034,7 +1150,12 @@ function getPathSelectionHTML(pathConfigs) {
             transition: opacity 0.2s ease;
             pointer-events: none;
         }
-        .path-card:hover::before { opacity: 0.08; }
+        .path-card:hover::before { opacity: 0.12; }
+        .path-card.selected {
+            background: var(--md-sys-color-primary-container);
+            border-color: var(--md-sys-color-primary);
+        }
+        .path-card.selected::before { display: none; }
         .path-card:hover {
             transform: translateY(-4px);
             box-shadow: 0 2px 6px 2px rgba(0,0,0,0.15), 0 1px 2px 0 rgba(0,0,0,0.3);
@@ -1044,8 +1165,8 @@ function getPathSelectionHTML(pathConfigs) {
         .path-icon {
             margin-bottom: 20px;
             display: inline-flex;
-            background: var(--md-sys-color-secondary-container);
-            color: var(--md-sys-color-on-secondary-container);
+            background: var(--md-sys-color-secondary);
+            color: var(--md-sys-color-on-secondary);
             border-radius: var(--md-sys-shape-corner-large);
             padding: 16px;
             transition: transform 0.2s ease;
@@ -1111,6 +1232,10 @@ function getPathSelectionHTML(pathConfigs) {
                 <h1 class="md-typescale-headline-medium">GitHub文件管理器</h1>
                 <p class="md-typescale-body-large">请选择要管理的文件夹路径</p>
                 <div class="header-actions">
+                    <md-elevated-button data-dark-toggle aria-label="切换到深色模式" onclick="toggleDarkMode()">
+                        <span slot="icon" class="material-symbols-outlined">routine</span>
+                        切换模式
+                    </md-elevated-button>
                     <md-elevated-button onclick="openThemeDialog()">
                         <span slot="icon" class="material-symbols-outlined">palette</span>
                         主题色
@@ -1144,9 +1269,9 @@ function getPathSelectionHTML(pathConfigs) {
     <md-dialog id="themeDialog">
         <div slot="headline">设置主题色</div>
         <div slot="content">
-            <p>选择一个颜色，系统将自动生成一套完整的 MD3 配色方案。</p>
+            <p>请选择颜色&#8195;&#8195;&#8195;&#8195;&#8195;&#8195;&#8195;&#8195;&#8195;&#8195;&#8195;&#8195;&#8195;&#8195;&#8195;&#8195;&#8195;&#8195;&#8195;&#8195;&#8195;</p>
             <div class="theme-color-input">
-                <div class="color-preview" id="colorPreview" style="background: #1e40af;" onclick="document.getElementById('colorInput').click()"></div>
+                <div class="color-preview" id="colorPreview" style="background: var(--md-sys-color-primary);" onclick="document.getElementById('colorInput').click()"></div>
                 <div class="color-input">
                     <label for="colorInput" style="font-size: 14px; color: var(--md-sys-color-on-surface-variant); display: block; margin-bottom: 8px;">选择主题色</label>
                     <input type="color" id="colorInput" value="#1e40af" onchange="updateColorPreview()">
@@ -1206,6 +1331,7 @@ function getFileManagerHTML(pathConfig, pathConfigs, env) {
             min-height: 100vh;
             margin: 0;
             display: flex;
+            flex-direction: row;
             background-color: var(--md-sys-color-background);
             color: var(--md-sys-color-on-background);
         }
@@ -1240,12 +1366,19 @@ function getFileManagerHTML(pathConfig, pathConfigs, env) {
         .nav-rail {
             width: 80px;
             background: var(--md-sys-color-surface);
+            border-right: 1px solid var(--md-sys-color-outline-variant);
+            flex-shrink: 0;
+            height: 100vh;
+            position: relative;
             display: flex;
             flex-direction: column;
             align-items: center;
             padding: 12px 0;
-            border-right: 1px solid var(--md-sys-color-outline-variant);
-            flex-shrink: 0;
+        }
+        .nav-rail-items {
+            flex: 1;
+            overflow-y: auto;
+            width: 100%;
         }
         .nav-rail-header {
             padding: 8px 0 16px;
@@ -1284,8 +1417,8 @@ function getFileManagerHTML(pathConfig, pathConfigs, env) {
         .nav-rail-fab:hover::before { opacity: 0.08; }
         .nav-rail-fab:active::before { opacity: 0.12; }
         .nav-rail-fab.active {
-            background: var(--md-sys-color-secondary-container);
-            color: var(--md-sys-color-on-secondary-container);
+            background: var(--md-sys-color-primary);
+            color: var(--md-sys-color-on-primary);
         }
         .nav-rail-fab.active::before { display: none; }
         .nav-rail-fab-label {
@@ -1309,9 +1442,22 @@ function getFileManagerHTML(pathConfig, pathConfigs, env) {
             text-overflow: ellipsis;
             white-space: nowrap;
         }
-        .nav-rail-spacer { flex: 1; }
         .nav-rail-bottom {
             padding: 8px 0;
+            flex-shrink: 0;
+            position: absolute;
+            bottom: 12px;
+            left: 0;
+            right: 0;
+            background: var(--md-sys-color-surface);
+            text-align: center;
+            z-index: 10;
+        }
+        .nav-rail-items {
+            flex: 1;
+            overflow-y: auto;
+            width: 100%;
+            padding-bottom: 60px;
         }
 
         /* Main content */
@@ -1488,9 +1634,9 @@ function getFileManagerHTML(pathConfig, pathConfigs, env) {
         </div>
         <div class="nav-rail-spacer"></div>
         <div class="nav-rail-bottom">
-            <md-icon-button aria-label="登出" onclick="if(confirm('确定要登出吗？')) { fetch('/api/logout', { method: 'POST' }).then(() => window.location.href = '/login').catch(() => window.location.href = '/login'); }">
-                <span slot="icon" class="material-symbols-outlined">logout</span>
-            </md-icon-button>
+        <md-filled-icon-button aria-label="登出" onclick="if(confirm('确定要登出吗？')) { fetch('/api/logout', { method: 'POST' }).then(() => window.location.href = '/login').catch(() => window.location.href = '/login'); }">
+  <md-icon>logout</md-icon>
+</md-filled-icon-button>
         </div>
     </nav>
 
@@ -1498,6 +1644,10 @@ function getFileManagerHTML(pathConfig, pathConfigs, env) {
         <div class="main-header">
             <div class="main-title">${escapeHtml(pathConfig.displayName)}</div>
             <div class="header-actions">
+                <md-outlined-button data-dark-toggle aria-label="切换模式" onclick="toggleDarkMode()">
+                    <span slot="icon" class="material-symbols-outlined">routine</span>
+                    切换模式
+                </md-outlined-button>
                 <md-outlined-button onclick="window.location.href='/';">
                     <span slot="icon" class="material-symbols-outlined">arrow_back</span>
                     返回选择
@@ -1553,9 +1703,9 @@ function getFileManagerHTML(pathConfig, pathConfigs, env) {
     <md-dialog id="themeDialog">
         <div slot="headline">设置主题色</div>
         <div slot="content">
-            <p>选择一个颜色，系统将自动生成一套完整的 MD3 配色方案。</p>
+            <p>请选择颜色&#8195;&#8195;&#8195;&#8195;&#8195;&#8195;&#8195;&#8195;&#8195;&#8195;&#8195;&#8195;&#8195;&#8195;&#8195;&#8195;&#8195;&#8195;&#8195;&#8195;&#8195;</p>
             <div class="theme-color-input">
-                <div class="color-preview" id="colorPreview" style="background: #1e40af;" onclick="document.getElementById('colorInput').click()"></div>
+                <div class="color-preview" id="colorPreview" style="background: var(--md-sys-color-primary);" onclick="document.getElementById('colorInput').click()"></div>
                 <div class="color-input">
                     <label for="colorInput" style="font-size: 14px; color: var(--md-sys-color-on-surface-variant); display: block; margin-bottom: 8px;">选择主题色</label>
                     <input type="color" id="colorInput" value="#1e40af" onchange="updateColorPreview()">
@@ -1569,6 +1719,10 @@ function getFileManagerHTML(pathConfig, pathConfigs, env) {
                 </md-outlined-button>
                 <input type="file" id="imageInput" accept="image/*" style="display: none;" onchange="extractColorFromImage(event)">
                 <canvas id="colorCanvas" style="display: none;"></canvas>
+            </div>
+            <div style="margin-top: 24px; display: flex; align-items: center; gap: 12px;">
+                <md-switch id="darkModeSwitch" onclick="toggleDarkMode(this.checked)"></md-switch>
+                <label for="darkModeSwitch" style="font-size: 14px; color: var(--md-sys-color-on-surface-variant); cursor: pointer;">深色模式</label>
             </div>
         </div>
         <div slot="actions">
@@ -1935,6 +2089,9 @@ function getEditFileHTML(filename, sha, filePath, env) {
     </style>
 </head>
 <body>
+    <div style="position: fixed; top: 16px; right: 16px; z-index: 100;">
+        <md-icon-button data-dark-toggle aria-label="切换到深色模式" onclick="toggleDarkMode()" icon="light_mode"></md-icon-button>
+    </div>
     <div class="container">
         <div class="header">
             <div class="header-content">
