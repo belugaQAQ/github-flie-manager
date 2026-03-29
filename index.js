@@ -127,6 +127,45 @@ function getMaterialWebHead(title) {
 // Material Web 动态色彩 CSS 变量默认值（含深色模式）
 function getMD3ColorTokens() {
   return `
+        /* 全局动画关键帧 */
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        @keyframes slideInUp {
+            from { opacity: 0; transform: translateY(30px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        @keyframes slideInRight {
+            from { opacity: 0; transform: translateX(-30px); }
+            to { opacity: 1; transform: translateX(0); }
+        }
+        @keyframes scaleIn {
+            from { opacity: 0; transform: scale(0.9); }
+            to { opacity: 1; transform: scale(1); }
+        }
+        @keyframes pulse {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.05); }
+            100% { transform: scale(1); }
+        }
+        @keyframes ripple {
+            0% { transform: scale(0); opacity: 0.5; }
+            100% { transform: scale(4); opacity: 0; }
+        }
+        @keyframes shimmer {
+            0% { background-position: -1000px 0; }
+            100% { background-position: 1000px 0; }
+        }
+        @keyframes spin {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
+        @keyframes bounce {
+            0%, 100% { transform: translateY(0); }
+            50% { transform: translateY(-10px); }
+        }
+        
         :root {
             --md-sys-color-primary: #1e40af;
             --md-sys-color-on-primary: #ffffff;
@@ -208,6 +247,7 @@ function getMD3ColorTokens() {
         }
         body {
             transition: background-color 0.3s ease, color 0.3s ease;
+            animation: fadeIn 0.5s ease;
         }`;
 }
 
@@ -473,10 +513,12 @@ function getLoginHTML(error = '') {
             border-radius: var(--md-sys-shape-corner-extra-large);
             box-shadow: 0 1px 3px 1px rgba(0,0,0,0.15), 0 1px 2px 0 rgba(0,0,0,0.3);
             overflow: hidden;
-            transition: box-shadow 0.3s ease;
+            transition: box-shadow 0.3s ease, transform 0.3s ease;
+            animation: slideInUp 0.6s ease;
         }
         .login-container:hover {
             box-shadow: 0 4px 6px 2px rgba(0,0,0,0.15), 0 2px 3px 0 rgba(0,0,0,0.3);
+            transform: translateY(-4px);
         }
         .login-header {
             background: var(--md-sys-color-primary);
@@ -526,6 +568,26 @@ function getLoginHTML(error = '') {
             width: 100%;
             --md-filled-button-container-shape: var(--md-sys-shape-corner-full);
             height: 56px;
+            transition: transform 0.2s ease, box-shadow 0.2s ease;
+            position: relative;
+            overflow: hidden;
+        }
+        .form-actions md-filled-button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+        }
+        .form-actions md-filled-button:active {
+            transform: translateY(0);
+            transition: transform 0.1s ease;
+        }
+        /* 波纹效果 */
+        .ripple {
+            position: absolute;
+            border-radius: 50%;
+            background: rgba(255,255,255,0.5);
+            transform: scale(0);
+            animation: ripple 0.6s ease-out;
+            pointer-events: none;
         }
         .footer {
             text-align: center;
@@ -534,9 +596,25 @@ function getLoginHTML(error = '') {
             color: var(--md-sys-color-on-surface-variant);
         }
         @media (max-width: 480px) {
-            .login-container { margin: 20px; border-radius: var(--md-sys-shape-corner-large); }
-            .login-header { padding: 32px 24px; }
-            .login-body { padding: 24px; }
+            body { padding: 0; }
+            .login-container { 
+                margin: 0; 
+                border-radius: 0; 
+                max-width: 100%; 
+                height: 100vh; 
+                display: flex; 
+                flex-direction: column; 
+                box-shadow: none;
+            }
+            .login-header { padding: 24px 20px; }
+            .login-body { padding: 20px; flex: 1; }
+            .form-actions { 
+                margin-top: auto; 
+                padding-top: 20px;
+            }
+            .material-symbols-outlined {
+                font-size: 20px;
+            }
         }
         .material-symbols-outlined {
             font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
@@ -1200,6 +1278,24 @@ function getPathSelectionHTML(pathConfigs) {
             cursor: pointer;
             transition: border-color 0.2s ease;
         }
+        /* 主题对话框最小宽度和移动端适配 */
+        #themeDialog {
+            --md-dialog-container-min-width: 420px;
+        }
+        @media (max-width: 480px) {
+            #themeDialog {
+                --md-dialog-container-min-width: 90vw;
+                --md-dialog-container-max-width: 90vw;
+            }
+            .theme-color-input {
+                flex-direction: column;
+                align-items: flex-start;
+            }
+            .color-preview {
+                width: 80px;
+                height: 80px;
+            }
+        }
         .color-preview:hover { border-color: var(--md-sys-color-outline); }
         .color-input { flex: 1; }
         .color-input input[type="color"] {
@@ -1210,11 +1306,20 @@ function getPathSelectionHTML(pathConfigs) {
             cursor: pointer;
             padding: 4px;
         }
-        @media (max-width: 768px) {
-            .card-body { padding: 24px; }
-            .path-grid { grid-template-columns: 1fr; }
-            .path-card { padding: 24px; aspect-ratio: auto; }
-            .header-actions { flex-direction: column; gap: 4px; }
+        @media (max-width: 480px) {
+            .container { padding: 12px; }
+            .card-header { padding: 10px;}
+            .card-body { padding: 20px; }
+            .path-card { padding: 20px; }
+            .header-actions { 
+                position: static;
+                margin-top: 12px;
+                flex-direction: row; 
+                gap: 8px;
+                flex-wrap: wrap;
+                justify-content: center;
+            }
+            .md-typescale-headline-medium { font-size: 20px; }
         }
             .material-symbols-outlined {
     font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
@@ -1229,7 +1334,7 @@ function getPathSelectionHTML(pathConfigs) {
     <div class="container">
         <div class="card">
             <div class="card-header">
-                <h1 class="md-typescale-headline-medium">GitHub文件管理器</h1>
+                <h1 class="md-typescale-headline-medium"><b>GitHub文件管理器</b></h1>
                 <p class="md-typescale-body-large">请选择要管理的文件夹路径</p>
                 <div class="header-actions">
                     <md-elevated-button data-dark-toggle aria-label="切换到深色模式" onclick="toggleDarkMode()">
@@ -1269,7 +1374,7 @@ function getPathSelectionHTML(pathConfigs) {
     <md-dialog id="themeDialog">
         <div slot="headline">设置主题色</div>
         <div slot="content">
-            <p>请选择颜色&#8195;&#8195;&#8195;&#8195;&#8195;&#8195;&#8195;&#8195;&#8195;&#8195;&#8195;&#8195;&#8195;&#8195;&#8195;&#8195;&#8195;&#8195;&#8195;&#8195;&#8195;</p>
+            <p>请选择颜色&#8195;&#8195;&#8195;&#8195;&#8195;&#8195;&#8195;&#8195;&#8195;&#8195;&#8195;&#8195;&#8195;&#8195;&#8195;&#8195;</p>
             <div class="theme-color-input">
                 <div class="color-preview" id="colorPreview" style="background: var(--md-sys-color-primary);" onclick="document.getElementById('colorInput').click()"></div>
                 <div class="color-input">
@@ -1293,17 +1398,38 @@ function getPathSelectionHTML(pathConfigs) {
         </div>
     </md-dialog>
 
+    <!-- 登出确认对话框 -->
+    <md-dialog id="logoutDialog" type="alert">
+        <div slot="headline">确认登出</div>
+        <form slot="content" id="logout-form" method="dialog">
+            确定要登出吗？
+        </form>
+        <div slot="actions">
+            <md-text-button form="logout-form" value="cancel">取消</md-text-button>
+            <md-text-button form="logout-form" value="logout">登出</md-text-button>
+        </div>
+    </md-dialog>
+
     <script>
     ${getMessageHelper()}
     ${getDynamicColorScript()}
 
         function logout() {
-            if (confirm('确定要登出吗？')) {
-                fetch('/api/logout', { method: 'POST' })
-                    .then(() => window.location.href = '/login')
-                    .catch(() => window.location.href = '/login');
-            }
+            const dialog = document.getElementById('logoutDialog');
+            dialog.show();
         }
+
+        // 监听对话框关闭事件
+        document.addEventListener('DOMContentLoaded', function() {
+            const logoutDialog = document.getElementById('logoutDialog');
+            logoutDialog.addEventListener('close', function() {
+                if (logoutDialog.returnValue === 'logout') {
+                    fetch('/api/logout', { method: 'POST' })
+                        .then(() => window.location.href = '/login')
+                        .catch(() => window.location.href = '/login');
+                }
+            });
+        });
 
         window.onload = function() {
             restoreThemeColor();
@@ -1350,6 +1476,24 @@ function getFileManagerHTML(pathConfig, pathConfigs, env) {
             border: 2px solid var(--md-sys-color-outline-variant);
             cursor: pointer;
             transition: border-color 0.2s ease;
+        }
+        /* 主题对话框最小宽度和移动端适配 */
+        #themeDialog {
+            --md-dialog-container-min-width: 420px;
+        }
+        @media (max-width: 480px) {
+            #themeDialog {
+                --md-dialog-container-min-width: 90vw;
+                --md-dialog-container-max-width: 90vw;
+            }
+            .theme-color-input {
+                flex-direction: column;
+                align-items: flex-start;
+            }
+            .color-preview {
+                width: 80px;
+                height: 80px;
+            }
         }
         .color-preview:hover { border-color: var(--md-sys-color-outline); }
         .color-input { flex: 1; }
@@ -1634,7 +1778,7 @@ function getFileManagerHTML(pathConfig, pathConfigs, env) {
         </div>
         <div class="nav-rail-spacer"></div>
         <div class="nav-rail-bottom">
-        <md-filled-icon-button aria-label="登出" onclick="if(confirm('确定要登出吗？')) { fetch('/api/logout', { method: 'POST' }).then(() => window.location.href = '/login').catch(() => window.location.href = '/login'); }">
+        <md-filled-icon-button aria-label="登出" onclick="logout()">
   <md-icon>logout</md-icon>
 </md-filled-icon-button>
         </div>
@@ -1703,7 +1847,7 @@ function getFileManagerHTML(pathConfig, pathConfigs, env) {
     <md-dialog id="themeDialog">
         <div slot="headline">设置主题色</div>
         <div slot="content">
-            <p>请选择颜色&#8195;&#8195;&#8195;&#8195;&#8195;&#8195;&#8195;&#8195;&#8195;&#8195;&#8195;&#8195;&#8195;&#8195;&#8195;&#8195;&#8195;&#8195;&#8195;&#8195;&#8195;</p>
+            <p>请选择颜色&#8195;&#8195;&#8195;&#8195;&#8195;&#8195;&#8195;&#8195;&#8195;&#8195;&#8195;&#8195;&#8195;&#8195;&#8195;&#8195;</p>
             <div class="theme-color-input">
                 <div class="color-preview" id="colorPreview" style="background: var(--md-sys-color-primary);" onclick="document.getElementById('colorInput').click()"></div>
                 <div class="color-input">
@@ -1720,14 +1864,34 @@ function getFileManagerHTML(pathConfig, pathConfigs, env) {
                 <input type="file" id="imageInput" accept="image/*" style="display: none;" onchange="extractColorFromImage(event)">
                 <canvas id="colorCanvas" style="display: none;"></canvas>
             </div>
-            <div style="margin-top: 24px; display: flex; align-items: center; gap: 12px;">
-                <md-switch id="darkModeSwitch" onclick="toggleDarkMode(this.checked)"></md-switch>
-                <label for="darkModeSwitch" style="font-size: 14px; color: var(--md-sys-color-on-surface-variant); cursor: pointer;">深色模式</label>
-            </div>
         </div>
         <div slot="actions">
             <md-text-button onclick="document.getElementById('themeDialog').close()">取消</md-text-button>
             <md-filled-button onclick="applyTheme()">应用</md-filled-button>
+        </div>
+    </md-dialog>
+
+    <!-- 登出确认对话框 -->
+    <md-dialog id="logoutDialog" type="alert">
+        <div slot="headline">确认登出</div>
+        <form slot="content" id="logout-form" method="dialog">
+            确定要登出吗？
+        </form>
+        <div slot="actions">
+            <md-text-button form="logout-form" value="cancel">取消</md-text-button>
+            <md-text-button form="logout-form" value="logout">登出</md-text-button>
+        </div>
+    </md-dialog>
+
+    <!-- 删除确认对话框 -->
+    <md-dialog id="deleteDialog" type="alert">
+        <div slot="headline">确认删除</div>
+        <form slot="content" id="delete-form" method="dialog">
+            确定要删除这个文件吗？此操作无法撤销。
+        </form>
+        <div slot="actions">
+            <md-text-button form="delete-form" value="cancel">取消</md-text-button>
+            <md-text-button form="delete-form" value="delete" style="color: var(--md-sys-color-error);">删除</md-text-button>
         </div>
     </md-dialog>
 
@@ -1828,31 +1992,38 @@ function getFileManagerHTML(pathConfig, pathConfigs, env) {
             window.location.href = '/edit?filename=' + encodeURIComponent(filename) + '&sha=' + encodeURIComponent(sha) + '&path=' + encodeURIComponent(filePath);
         }
 
+        let pendingDelete = null;
+
         function deleteFile(filePath, sha) {
-            try {
-                if (confirm('确定要删除文件 ' + filePath.split('/').pop() + ' 吗？')) {
-                    fetch(apiBase, {
-                        method: 'DELETE',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ filePath: filePath, sha: sha })
-                    })
-                    .then(function(response) { return response.json(); })
-                    .then(function(data) {
-                        if (data.success) {
-                            showMessage('文件删除成功', false);
-                            window.getFileList();
-                        } else {
-                            showMessage(data.error || '删除失败', true);
-                        }
-                    })
-                    .catch(function(error) {
-                        console.error('删除文件失败:', error);
-                        showMessage('删除文件失败', true);
-                    });
+            pendingDelete = { filePath, sha };
+            const dialog = document.getElementById('deleteDialog');
+            dialog.show();
+        }
+
+        function confirmDelete() {
+            if (!pendingDelete) return;
+            
+            const { filePath, sha } = pendingDelete;
+            pendingDelete = null;
+            
+            fetch(apiBase, {
+                method: 'DELETE',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ filePath: filePath, sha: sha })
+            })
+            .then(function(response) { return response.json(); })
+            .then(function(data) {
+                if (data.success) {
+                    showMessage('文件删除成功', false);
+                    window.getFileList();
+                } else {
+                    showMessage(data.error || '删除失败', true);
                 }
-            } catch (error) {
-                console.error('deleteFile函数执行失败:', error);
-            }
+            })
+            .catch(function(error) {
+                console.error('删除文件失败:', error);
+                showMessage('删除文件失败', true);
+            });
         }
 
         function uploadFiles() {
@@ -1959,6 +2130,11 @@ function getFileManagerHTML(pathConfig, pathConfigs, env) {
         window.deleteFile = deleteFile;
         window.uploadFiles = uploadFiles;
 
+        function logout() {
+            const dialog = document.getElementById('logoutDialog');
+            dialog.show();
+        }
+
         document.addEventListener('click', function(e) {
             const button = e.target.closest('.file-action-btn');
             if (button) {
@@ -1984,11 +2160,24 @@ function getFileManagerHTML(pathConfig, pathConfigs, env) {
         document.addEventListener('DOMContentLoaded', function() {
             window.getFileList();
             restoreThemeColor();
-        });
-
-        document.addEventListener('DOMContentLoaded', function() {
-            window.getFileList();
-            restoreThemeColor();
+            
+            // 监听登出对话框关闭事件
+            const logoutDialog = document.getElementById('logoutDialog');
+            logoutDialog.addEventListener('close', function() {
+                if (logoutDialog.returnValue === 'logout') {
+                    fetch('/api/logout', { method: 'POST' })
+                        .then(() => window.location.href = '/login')
+                        .catch(() => window.location.href = '/login');
+                }
+            });
+            
+            // 监听删除对话框关闭事件
+            const deleteDialog = document.getElementById('deleteDialog');
+            deleteDialog.addEventListener('close', function() {
+                if (deleteDialog.returnValue === 'delete') {
+                    confirmDelete();
+                }
+            });
         });
     </script>
 </body>
