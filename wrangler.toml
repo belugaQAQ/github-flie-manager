@@ -1,39 +1,9 @@
 name = "github-file-manager"
 main = "index.js"
-compatibility_date = "2024-01-01"
+compatibility_date = "2025-07-18"
 
 # 环境变量配置
-[vars]
-GITHUB_TOKEN = "ghp_token"
-GITHUB_OWNER = "github_username"
-GITHUB_REPO = "repo"
-GITHUB_BRANCH = "main"
-GITHUB_PATH1 = "public/assets/gallery-images"
-GITHUB_PATH1_NAME = "相册"
-GITHUB_PATH2 = "public/assets/history-images"
-GITHUB_PATH2_NAME = "历程"
-GITHUB_PATH3 = "public/assets/leaderboard"
-GITHUB_PATH3_NAME = "排行榜"
-GITHUB_PATH4 = "public/backgrounds"
-GITHUB_PATH4_NAME = "背景图"
-GITHUB_PATH5 = "public/assets/memberlist"
-GITHUB_PATH5_NAME = "白名单"
-GITHUB_PATH6 = "src/config"
-GITHUB_PATH6_NAME = "页面配置"
-
-# 登录认证配置
-LOGIN_USERNAME = "admin"
-LOGIN_PASSWORD = "password123"
-
-# 会话配置（可选）
-SESSION_SECRET = "your-secret-key-here"
-SESSION_MAX_AGE = "3600"
-
-# 或者使用Cloudflare环境变量（推荐用于生产环境）
-# 在Cloudflare Dashboard中设置这些变量
-# [env.production.vars]
-# GITHUB_TOKEN = "{{GITHUB_TOKEN}}"
-# GITHUB_OWNER = "{{GITHUB_OWNER}}"
-# GITHUB_REPO = "{{GITHUB_REPO}}"
-# GITHUB_BRANCH = "{{GITHUB_BRANCH}}"
-# GITHUB_PATH = "{{GITHUB_PATH}}"
+[[kv_namespaces]]
+binding = "KV"
+id = xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+preview_id = xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx

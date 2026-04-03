@@ -1,30 +1,102 @@
+// ===== 密码哈希（SHA-256 + Salt）=====
+async function hashPassword(password) {
+    const encoder = new TextEncoder();
+    const data = encoder.encode(password + ':ghfm-salt-2024');
+    const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+    const hashArray = Array.from(new Uint8Array(hashBuffer));
+    return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+async function verifyPassword(password, hash) {
+    const computedHash = await hashPassword(password);
+    return computedHash === hash;
+}
+
+// ===== AES-GCM 加密/解密 =====
+const ENCRYPTION_KEY_RAW = 'a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6';
+
+async function getEncryptionKey() {
+    const encoder = new TextEncoder();
+    const keyData = encoder.encode(ENCRYPTION_KEY_RAW);
+    return await crypto.subtle.importKey(
+        'raw', keyData, { name: 'AES-GCM' }, false, ['encrypt', 'decrypt']
+    );
+}
+
+async function encryptConfig(configObj) {
+    const key = await getEncryptionKey();
+    const encoder = new TextEncoder();
+    const iv = crypto.getRandomValues(new Uint8Array(12));
+    const encrypted = await crypto.subtle.encrypt(
+        { name: 'AES-GCM', iv: iv },
+        key,
+        encoder.encode(JSON.stringify(configObj))
+    );
+    return {
+        encrypted: btoa(String.fromCharCode(...new Uint8Array(encrypted))),
+        iv: btoa(String.fromCharCode(...iv))
+    };
+}
+
+async function decryptConfig(encryptedData) {
+    try {
+        const key = await getEncryptionKey();
+        const encrypted = Uint8Array.from(atob(encryptedData.encrypted), c => c.charCodeAt(0));
+        const iv = Uint8Array.from(atob(encryptedData.iv), c => c.charCodeAt(0));
+        const decrypted = await crypto.subtle.decrypt(
+            { name: 'AES-GCM', iv: iv },
+            key,
+            encrypted
+        );
+        return JSON.parse(new TextDecoder().decode(decrypted));
+    } catch (e) {
+        return null;
+    }
+}
+
+// ===== Session Token =====
+function generateSessionToken() {
+    const arr = new Uint8Array(32);
+    crypto.getRandomValues(arr);
+    return Array.from(arr).map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+function getClientIP(request) {
+    return request.headers.get('CF-Connecting-IP') || 
+           request.headers.get('X-Forwarded-For')?.split(',')[0]?.trim() || 
+           'unknown';
+}
+
+async function checkRateLimit(env, keyPrefix, request, maxAttempts = 5, windowMinutes = 15) {
+    const rateKey = keyPrefix + ':' + getClientIP(request);
+    const attempts = await env.KV.get(rateKey);
+    
+    if (attempts && parseInt(attempts) >= maxAttempts) {
+        return false;
+    }
+    return true;
+}
+
+async function recordAttempt(env, keyPrefix, request) {
+    const rateKey = keyPrefix + ':' + getClientIP(request);
+    let attempts = await env.KV.get(rateKey);
+    attempts = attempts ? parseInt(attempts) + 1 : 1;
+    await env.KV.put(rateKey, String(attempts), { expirationTtl: 900 });
+}
+
 // 获取所有路径配置
-function getPathConfig(env) {
+function getPathConfig(userConfig) {
   const paths = [];
   
-  // 基础路径（兼容旧版本）
-  if (env.GITHUB_PATH) {
-    paths.push({
-      name: 'default',
-      displayName: '默认路径',
-      path: env.GITHUB_PATH
+  // 使用用户配置中的paths数组
+  if (userConfig.paths && userConfig.paths.length > 0) {
+    userConfig.paths.forEach((p, index) => {
+      paths.push({
+        name: 'path' + (index + 1),
+        displayName: p.name || ('路径' + (index + 1)),
+        path: p.path
+      });
     });
-  }
-  
-  // 动态路径配置
-  let i = 1;
-  while (true) {
-    const pathKey = `GITHUB_PATH${i}`;
-    const nameKey = `GITHUB_PATH${i}_NAME`;
-    
-    if (!env[pathKey]) break;
-    
-    paths.push({
-      name: `path${i}`,
-      displayName: env[nameKey] || `路径${i}`,
-      path: env[pathKey]
-    });
-    i++;
   }
   
   // 如果没有配置任何路径，使用默认值
@@ -39,18 +111,36 @@ function getPathConfig(env) {
   return paths;
 }
 
-// 会话存储（使用内存存储，生产环境建议使用 KV）
-const sessions = new Map();
+// 从请求中获取用户配置
+async function getUserConfig(request, env) {
+  const username = await verifySession(request, env);
+  if (!username) return null;
+  
+  const configStr = await env.KV.get('config:' + username);
+  if (!configStr) return null;
+  
+  try {
+    const encryptedData = JSON.parse(configStr);
+    return await decryptConfig(encryptedData);
+  } catch (e) {
+    return null;
+  }
+}
 
-// 生成会话令牌
-function generateSessionToken() {
-  return crypto.randomUUID();
+// 获取GitHub API配置的辅助函数
+function getGithubConfig(userConfig) {
+  return {
+    GITHUB_TOKEN: userConfig.GITHUB_TOKEN || '',
+    GITHUB_OWNER: userConfig.GITHUB_OWNER || '',
+    GITHUB_REPO: userConfig.GITHUB_REPO || '',
+    GITHUB_BRANCH: userConfig.GITHUB_BRANCH || 'main'
+  };
 }
 
 // 验证会话
-function verifySession(request, env) {
+async function verifySession(request, env) {
   const cookieHeader = request.headers.get('Cookie');
-  if (!cookieHeader) return false;
+  if (!cookieHeader) return null;
   
   const cookies = new Map(cookieHeader.split(';').map(c => {
     const [key, value] = c.trim().split('=');
@@ -58,28 +148,42 @@ function verifySession(request, env) {
   }));
   
   const sessionToken = cookies.get('session_token');
-  if (!sessionToken) return false;
+  if (!sessionToken) return null;
   
-  const sessionData = sessions.get(sessionToken);
-  return sessionData && sessionData.expires > Date.now();
+  // 从KV读取会话数据
+  const sessionStr = await env.KV.get('session:' + sessionToken);
+  if (!sessionStr) return null;
+  
+  const sessionData = JSON.parse(sessionStr);
+  if (sessionData.expiresAt < Date.now()) {
+    // 会话过期，删除
+    await env.KV.delete('session:' + sessionToken);
+    return null;
+  }
+  
+  return sessionData.username; // 返回用户名而非布尔值
 }
 
 // 设置会话Cookie
-function setSessionCookie(response, env, username) {
+async function setSessionCookie(response, env, username) {
   const sessionToken = generateSessionToken();
-  const maxAge = parseInt(env.SESSION_MAX_AGE) || 3600;
+  const maxAge = 3600; // 1小时
   
-  sessions.set(sessionToken, {
+  const sessionData = {
     username: username,
-    expires: Date.now() + maxAge * 1000
-  });
+    expiresAt: Date.now() + maxAge * 1000,
+    createdAt: new Date().toISOString()
+  };
+  
+  // 写入KV，设置TTL自动过期
+  await env.KV.put('session:' + sessionToken, JSON.stringify(sessionData), { expirationTtl: maxAge });
   
   response.headers.set('Set-Cookie', `session_token=${sessionToken}; Max-Age=${maxAge}; HttpOnly; Path=/; SameSite=Lax`);
   return response;
 }
 
 // 清除会话Cookie
-function clearSessionCookie(response, request) {
+async function clearSessionCookie(response, request, env) {
   const cookieHeader = request.headers.get('Cookie');
   if (cookieHeader) {
     const cookies = new Map(cookieHeader.split(';').map(c => {
@@ -88,7 +192,7 @@ function clearSessionCookie(response, request) {
     }));
     const sessionToken = cookies.get('session_token');
     if (sessionToken) {
-      sessions.delete(sessionToken);
+      await env.KV.delete('session:' + sessionToken);
     }
   }
   
@@ -661,7 +765,7 @@ function getLoginHTML(error = '') {
                     </md-filled-button>
                 </div>
                 <div class="footer">
-                    <p>&copy; 2026 GitHub文件管理器</p>
+                    <p>没有账号？<a href="/register">去注册</a></p>
                 </div>
             </form>
         </div>
@@ -687,6 +791,224 @@ function getLoginHTML(error = '') {
   `;
 }
 
+// 注册页面HTML
+function getRegisterHTML(error = '') {
+  return `
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    ${getMaterialWebHead('GitHub文件管理器 - 注册')}
+    <style>
+    ${getMD3ColorTokens()}
+        * { box-sizing: border-box; }
+        body {
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: var(--md-sys-color-background);
+            margin: 0;
+            font-family: 'Roboto', 'Helvetica', 'Arial', sans-serif;
+            transition: background 0.3s ease;
+        }
+        .login-container {
+            width: 100%;
+            max-width: 420px;
+            background: var(--md-sys-color-surface);
+            border-radius: var(--md-sys-shape-corner-extra-large);
+            box-shadow: 0 1px 3px 1px rgba(0,0,0,0.15), 0 1px 2px 0 rgba(0,0,0,0.3);
+            overflow: hidden;
+            transition: box-shadow 0.3s ease, transform 0.3s ease;
+            animation: slideInUp 0.6s ease;
+        }
+        .login-container:hover {
+            box-shadow: 0 4px 6px 2px rgba(0,0,0,0.15), 0 2px 3px 0 rgba(0,0,0,0.3);
+            transform: translateY(-4px);
+        }
+        .login-header {
+            background: var(--md-sys-color-primary);
+            color: var(--md-sys-color-on-primary);
+            padding: 40px 32px;
+            text-align: center;
+        }
+        .logo { margin-bottom: 20px; display: flex; justify-content: center; }
+        .logo-icon {
+            background: var(--md-sys-color-primary-container);
+            color: var(--md-sys-color-on-primary-container);
+            border-radius: 50%;
+            padding: 16px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: transform 0.2s ease;
+            position: relative;
+            overflow: hidden;
+        }
+        .logo-icon::before {
+            content: '';
+            position: absolute;
+            inset: 0;
+            background: currentColor;
+            opacity: 0;
+            transition: opacity 0.2s ease;
+            pointer-events: none;
+            border-radius: 50%;
+        }
+        .logo-icon:hover::before { opacity: 0.08; }
+        .logo-icon:hover { transform: scale(1.05); }
+        .login-body { padding: 32px; }
+        .error-message {
+            margin-bottom: 24px;
+            padding: 12px 16px;
+            border-radius: var(--md-sys-shape-corner-small);
+            background: var(--md-sys-color-error-container);
+            color: var(--md-sys-color-on-error-container);
+            font-size: 14px;
+            line-height: 1.5;
+        }
+        .form-group { margin-bottom: 24px; }
+        .form-group md-outlined-text-field { width: 100%; }
+        .form-actions { margin-top: 32px; }
+        .form-actions md-filled-button {
+            width: 100%;
+            --md-filled-button-container-shape: var(--md-sys-shape-corner-full);
+            height: 56px;
+            transition: transform 0.2s ease, box-shadow 0.2s ease;
+            position: relative;
+            overflow: hidden;
+        }
+        .form-actions md-filled-button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+        }
+        .form-actions md-filled-button:active {
+            transform: translateY(0);
+            transition: transform 0.1s ease;
+        }
+        /* 波纹效果 */
+        .ripple {
+            position: absolute;
+            border-radius: 50%;
+            background: rgba(255,255,255,0.5);
+            transform: scale(0);
+            animation: ripple 0.6s ease-out;
+            pointer-events: none;
+        }
+        .footer {
+            text-align: center;
+            margin-top: 24px;
+            font-size: 14px;
+            color: var(--md-sys-color-on-surface-variant);
+        }
+        .footer a {
+            color: var(--md-sys-color-primary);
+            text-decoration: none;
+            font-weight: 500;
+        }
+        .footer a:hover {
+            text-decoration: underline;
+        }
+        @media (max-width: 480px) {
+            body { padding: 0; }
+            .login-container { 
+                margin: 0; 
+                border-radius: 0; 
+                max-width: 100%; 
+                height: 100vh; 
+                display: flex; 
+                flex-direction: column; 
+                box-shadow: none;
+            }
+            .login-header { padding: 24px 20px; }
+            .login-body { padding: 20px; flex: 1; }
+            .form-actions { 
+                margin-top: auto; 
+                padding-top: 20px;
+            }
+            .material-symbols-outlined {
+                font-size: 20px;
+            }
+        }
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+            line-height: 1;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+        }
+    </style>
+</head>
+<body>
+    <div style="position: fixed; top: 16px; right: 16px; z-index: 100;">
+        <md-filled-icon-button data-dark-toggle aria-label="切换到深色模式" onclick="toggleDarkMode()">
+          <md-icon>routine</md-icon>
+        </md-filled-icon-button>
+    </div>
+    <div class="login-container">
+        <div class="login-header">
+            <div class="logo">
+                <div class="logo-icon">
+                    <span class="material-symbols-outlined" style="font-size: 48px;">person_add</span>
+                </div>
+            </div>
+            <h1 class="md-typescale-headline-medium">GitHub文件管理器</h1>
+            <p class="md-typescale-body-large">创建新账户以使用系统</p>
+        </div>
+        ${error ? `<div class="error-message" role="alert">${error}</div>` : ''}
+        <div class="login-body">
+            <form id="registerForm" method="POST" action="/api/register">
+                <div class="form-group">
+                    <md-outlined-text-field label="用户名" type="text" name="username" id="username" required>
+                        <span slot="leading-icon" class="material-symbols-outlined">person</span>
+                    </md-outlined-text-field>
+                </div>
+                <div class="form-group">
+                    <md-outlined-text-field label="密码" type="password" name="password" id="password" required>
+                        <span slot="leading-icon" class="material-symbols-outlined">lock</span>
+                    </md-outlined-text-field>
+                </div>
+                <div class="form-group">
+                    <md-outlined-text-field label="确认密码" type="password" name="confirmPassword" id="confirmPassword" required>
+                        <span slot="leading-icon" class="material-symbols-outlined">lock</span>
+                    </md-outlined-text-field>
+                </div>
+                <div class="form-actions">
+                    <md-filled-button type="submit">
+                        <span slot="icon" class="material-symbols-outlined">person_add</span>
+                        注册
+                    </md-filled-button>
+                </div>
+                <div class="footer">
+                    <p>已有账号？<a href="/login">去登录</a></p>
+                </div>
+            </form>
+        </div>
+    </div>
+    <script>
+    ${getMessageHelper()}
+    ${getDynamicColorScript()}
+        document.getElementById('registerForm').addEventListener('submit', function(e) {
+            const username = document.getElementById('username').value;
+            const password = document.getElementById('password').value;
+            const confirmPassword = document.getElementById('confirmPassword').value;
+            if (!username || !password || !confirmPassword) {
+                e.preventDefault();
+                showMessage('请填写所有必填项', true);
+            } else if (password !== confirmPassword) {
+                e.preventDefault();
+                showMessage('两次输入的密码不一致', true);
+            }
+        });
+        window.onload = function() {
+            document.getElementById('username').focus();
+            restoreThemeColor();
+        };
+    </script>
+</body>
+</html>
+  `;
+}
+
 // 登录处理函数
 async function handleLogin(request, env) {
   if (request.method !== 'POST') {
@@ -695,30 +1017,110 @@ async function handleLogin(request, env) {
   
   try {
     const formData = await request.formData();
+    
+    const rateLimited = await checkRateLimit(env, 'login', request);
+    if (!rateLimited) {
+      return new Response(getLoginHTML('登录尝试次数过多，请15分钟后再试'), { status: 429, headers: { 'Content-Type': 'text/html; charset=utf-8' } });
+    }
+    
     const username = formData.get('username');
     const password = formData.get('password');
     
-    const expectedUsername = env.LOGIN_USERNAME || 'admin';
-    const expectedPassword = env.LOGIN_PASSWORD || 'password123';
+    await recordAttempt(env, 'login', request);
     
-    if (username === expectedUsername && password === expectedPassword) {
-      const response = new Response(null, {
-        status: 302,
-        headers: { 'Location': '/' }
-      });
-      return setSessionCookie(response, env, username);
-    } else {
-      return new Response(getLoginHTML('用户名或密码错误'), {
-        status: 401,
-        headers: { 'Content-Type': 'text/html; charset=utf-8' }
-      });
+    const userStr = await env.KV.get('user:' + username);
+    if (!userStr) {
+      return new Response(getLoginHTML('用户名或密码错误'), { status: 401, headers: { 'Content-Type': 'text/html; charset=utf-8' } });
     }
+    
+    const userData = JSON.parse(userStr);
+    const passwordMatch = await verifyPassword(password, userData.passwordHash);
+    
+    if (!passwordMatch) {
+      return new Response(getLoginHTML('用户名或密码错误'), { status: 401, headers: { 'Content-Type': 'text/html; charset=utf-8' } });
+    }
+    
+    userData.lastLogin = new Date().toISOString();
+    await env.KV.put('user:' + username, JSON.stringify(userData));
+    
+    const oldCookie = request.headers.get('Cookie');
+    if (oldCookie) {
+        const cookies = new Map(oldCookie.split(';').map(c => {
+            const [key, value] = c.trim().split('=');
+            return [key, value];
+        }));
+        const oldToken = cookies.get('session_token');
+        if (oldToken) await env.KV.delete('session:' + oldToken);
+    }
+    
+    const response = new Response(null, { status: 302, headers: { 'Location': '/' } });
+    return setSessionCookie(response, env, username);
+    
   } catch (error) {
-    return new Response(getLoginHTML('登录请求格式错误'), {
-      status: 400,
-      headers: { 'Content-Type': 'text/html; charset=utf-8' }
-    });
+    console.error('登录错误:', error);
+    return new Response(getLoginHTML('登录请求处理失败'), { status: 400, headers: { 'Content-Type': 'text/html; charset=utf-8' } });
   }
+}
+
+// 注册处理函数
+async function handleRegister(request, env) {
+    if (request.method !== 'POST') return new Response('Method Not Allowed', { status: 405 });
+
+    try {
+        const formData = await request.formData();
+        
+        const rateLimited = await checkRateLimit(env, 'register', request);
+        if (!rateLimited) {
+            return new Response(getRegisterHTML('注册尝试次数过多，请15分钟后再试'), { status: 429, headers: { 'Content-Type': 'text/html; charset=utf-8' } });
+        }
+        
+        const username = formData.get('username');
+        const password = formData.get('password');
+        const confirmPassword = formData.get('confirmPassword');
+
+        await recordAttempt(env, 'register', request);
+
+        if (!username || !password || !confirmPassword) {
+            return new Response(getRegisterHTML('请填写所有必填项'), { status: 400, headers: { 'Content-Type': 'text/html; charset=utf-8' } });
+        }
+
+        if (username.length < 3 || username.length > 20) {
+            return new Response(getRegisterHTML('用户名长度需为3-20个字符'), { status: 400, headers: { 'Content-Type': 'text/html; charset=utf-8' } });
+        }
+
+        if (password.length < 6) {
+            return new Response(getRegisterHTML('密码长度至少6位'), { status: 400, headers: { 'Content-Type': 'text/html; charset=utf-8' } });
+        }
+
+        if (password !== confirmPassword) {
+            return new Response(getRegisterHTML('两次输入的密码不一致'), { status: 400, headers: { 'Content-Type': 'text/html; charset=utf-8' } });
+        }
+
+        if (!/^[a-zA-Z0-9_]+$/.test(username)) {
+            return new Response(getRegisterHTML('用户名只能包含字母、数字和下划线'), { status: 400, headers: { 'Content-Type': 'text/html; charset=utf-8' } });
+        }
+
+        const existingUser = await env.KV.get('user:' + username);
+        if (existingUser) {
+            return new Response(getRegisterHTML('用户名已存在，请选择其他用户名'), { status: 409, headers: { 'Content-Type': 'text/html; charset=utf-8' } });
+        }
+
+        const passwordHash = await hashPassword(password);
+        const userData = JSON.stringify({
+            passwordHash: passwordHash,
+            createdAt: new Date().toISOString(),
+            lastLogin: null
+        });
+
+        await env.KV.put('user:' + username, userData);
+
+        const response = new Response(null, { status: 302, headers: { 'Location': '/login?registered=1' } });
+        return response;
+
+    } catch (error) {
+        console.error('注册错误:', error);
+        return new Response(getRegisterHTML('注册请求处理失败'), { status: 500, headers: { 'Content-Type': 'text/html; charset=utf-8' } });
+    }
 }
 
 // 登出处理函数
@@ -727,13 +1129,13 @@ async function handleLogout(request, env) {
     status: 302,
     headers: { 'Location': '/login' }
   });
-  return clearSessionCookie(response, request);
+  return clearSessionCookie(response, request, env);
 }
 
 // 获取文件列表
-async function getFiles(env, pathConfig) {
+async function getFiles(githubConfig, pathConfig) {
   try {
-    const { GITHUB_TOKEN, GITHUB_OWNER, GITHUB_REPO, GITHUB_BRANCH } = env;
+    const { GITHUB_TOKEN, GITHUB_OWNER, GITHUB_REPO, GITHUB_BRANCH } = githubConfig;
     const path = pathConfig.path || '';
     
     // 编码路径
@@ -787,7 +1189,7 @@ async function getFiles(env, pathConfig) {
 }
 
 // 上传文件
-async function uploadFile(request, env, pathConfig) {
+async function uploadFile(request, githubConfig, pathConfig) {
   try {
     const formData = await request.formData();
     const file = formData.get('file');
@@ -811,7 +1213,7 @@ async function uploadFile(request, env, pathConfig) {
       });
     }
     
-    const { GITHUB_TOKEN, GITHUB_OWNER, GITHUB_REPO, GITHUB_BRANCH } = env;
+    const { GITHUB_TOKEN, GITHUB_OWNER, GITHUB_REPO, GITHUB_BRANCH } = githubConfig;
     const basePath = pathConfig.path || '';
     const filePath = basePath ? `${basePath}/${filename}` : filename;
     
@@ -897,7 +1299,7 @@ async function uploadFile(request, env, pathConfig) {
 }
 
 // 删除文件
-async function deleteFile(request, env, pathConfig) {
+async function deleteFile(request, githubConfig, pathConfig) {
   try {
     const { filePath, sha } = await request.json();
     
@@ -908,7 +1310,7 @@ async function deleteFile(request, env, pathConfig) {
       });
     }
     
-    const { GITHUB_TOKEN, GITHUB_OWNER, GITHUB_REPO, GITHUB_BRANCH } = env;
+    const { GITHUB_TOKEN, GITHUB_OWNER, GITHUB_REPO, GITHUB_BRANCH } = githubConfig;
     
     // 编码文件路径
     const encodedFilePath = encodeGitHubPath(filePath);
@@ -960,7 +1362,7 @@ async function deleteFile(request, env, pathConfig) {
 }
 
 // 修改文件
-async function updateFile(request, env, pathConfig) {
+async function updateFile(request, githubConfig, pathConfig) {
   try {
     const { filePath, sha, content, message } = await request.json();
     
@@ -971,7 +1373,7 @@ async function updateFile(request, env, pathConfig) {
       });
     }
     
-    const { GITHUB_TOKEN, GITHUB_OWNER, GITHUB_REPO, GITHUB_BRANCH } = env;
+    const { GITHUB_TOKEN, GITHUB_OWNER, GITHUB_REPO, GITHUB_BRANCH } = githubConfig;
     
     // 编码文件路径
     const encodedFilePath = encodeGitHubPath(filePath);
@@ -1033,7 +1435,7 @@ async function updateFile(request, env, pathConfig) {
 }
 
 // 下载代理
-async function downloadProxy(request, env) {
+async function downloadProxy(request, githubConfig) {
   try {
     const url = new URL(request.url);
     const filePath = url.searchParams.get('path');
@@ -1043,7 +1445,7 @@ async function downloadProxy(request, env) {
       return new Response('缺少文件路径参数', { status: 400 });
     }
     
-    const { GITHUB_TOKEN, GITHUB_OWNER, GITHUB_REPO, GITHUB_BRANCH } = env;
+    const { GITHUB_TOKEN, GITHUB_OWNER, GITHUB_REPO, GITHUB_BRANCH } = githubConfig;
     
     // 使用GitHub API获取文件内容
     const encodedFilePath = encodeGitHubPath(filePath);
@@ -1158,6 +1560,489 @@ function escapeHtml(str) {
   });
 }
 
+// 设置页面HTML
+function getSettingsHTML(username, error = '', isFirst = false) {
+  return `
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    ${getMaterialWebHead('GitHub文件管理器 - 配置设置')}
+    <style>
+    ${getMD3ColorTokens()}
+        * { box-sizing: border-box; }
+        body {
+            font-family: 'Roboto', 'Helvetica', 'Arial', sans-serif;
+            line-height: 1.6;
+            min-height: 100vh;
+            margin: 0;
+            background-color: var(--md-sys-color-background);
+            color: var(--md-sys-color-on-background);
+        }
+        .container { max-width: 800px; margin: 0 auto; padding: 20px; }
+        .card {
+            background: var(--md-sys-color-surface);
+            border-radius: var(--md-sys-shape-corner-extra-large);
+            box-shadow: 0 1px 3px 1px rgba(0,0,0,0.15), 0 1px 2px 0 rgba(0,0,0,0.3);
+            overflow: hidden;
+        }
+        .card-header {
+            background: var(--md-sys-color-primary);
+            color: var(--md-sys-color-on-primary);
+            padding: 32px;
+            text-align: left;
+            position: relative;
+        }
+        .header-actions {
+            position: absolute;
+            top: 16px;
+            right: 16px;
+            display: flex;
+            gap: 8px;
+        }
+        .card-body { padding: 40px; }
+        .form-section { margin-bottom: 32px; }
+        .section-title {
+            font-size: 18px;
+            font-weight: 600;
+            color: var(--md-sys-color-on-surface);
+            margin-bottom: 20px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .form-group { margin-bottom: 24px; }
+        .form-group md-outlined-text-field { width: 100%; }
+        .path-list { margin-top: 16px; }
+        .path-item {
+            display: flex;
+            gap: 12px;
+            align-items: flex-start;
+            margin-bottom: 16px;
+            padding: 16px;
+            background: var(--md-sys-color-surface-container-low);
+            border-radius: var(--md-sys-shape-corner-large);
+            border: 1px solid var(--md-sys-color-outline-variant);
+        }
+        .path-item md-outlined-text-field { flex: 1; }
+        .path-item .delete-btn {
+            flex-shrink: 0;
+            margin-top: 8px;
+        }
+        .add-path-btn {
+            margin-top: 16px;
+            width: 100%;
+        }
+        .form-actions {
+            margin-top: 32px;
+            display: flex;
+            gap: 16px;
+            justify-content: flex-end;
+        }
+        .error-message {
+            margin-bottom: 24px;
+            padding: 12px 16px;
+            border-radius: var(--md-sys-shape-corner-small);
+            background: var(--md-sys-color-error-container);
+            color: var(--md-sys-color-on-error-container);
+            font-size: 14px;
+            line-height: 1.5;
+        }
+        .success-message {
+            margin-bottom: 24px;
+            padding: 12px 16px;
+            border-radius: var(--md-sys-shape-corner-small);
+            background: var(--md-sys-color-primary-container);
+            color: var(--md-sys-color-on-primary-container);
+            font-size: 14px;
+            line-height: 1.5;
+        }
+        @media (max-width: 768px) {
+            .container { padding: 16px; }
+            .card-header { padding: 20px; }
+            .card-body { padding: 24px; }
+            .path-item { flex-direction: column; }
+            .path-item .delete-btn { margin-top: 0; }
+            .form-actions { flex-direction: column; }
+        }
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+            line-height: 1;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="card">
+            <div class="card-header">
+                <h1 class="md-typescale-headline-medium"><b>GitHub 配置设置</b></h1>
+                <p class="md-typescale-body-large">配置您的 GitHub 仓库连接信息</p>
+                <div class="header-actions">
+                    <md-elevated-button data-dark-toggle aria-label="切换到深色模式" onclick="toggleDarkMode()">
+                        <span slot="icon" class="material-symbols-outlined">routine</span>
+                        切换模式
+                    </md-elevated-button>
+                    <md-elevated-button onclick="window.location.href='/';">
+                        <span slot="icon" class="material-symbols-outlined">arrow_back</span>
+                        返回
+                    </md-elevated-button>
+                </div>
+            </div>
+            <div class="card-body">
+                ${isFirst ? `<div style="margin-bottom: 24px; padding: 16px 20px; border-radius: var(--md-sys-shape-corner-medium); background: var(--md-sys-color-primary-container); color: var(--md-sys-color-on-primary-container); font-size: 15px; line-height: 1.6;">
+                    <strong>欢迎使用！</strong>请先完成 GitHub API 配置以开始使用。
+                </div>` : ''}
+                ${error ? `<div class="error-message" role="alert">${error}</div>` : ''}
+                <div id="messageArea"></div>
+                <form id="settingsForm" method="POST" action="/api/config">
+                    <div class="form-section">
+                        <h2 class="section-title">
+                            <span class="material-symbols-outlined">link</span>
+                            GitHub 连接配置
+                        </h2>
+                        <div class="form-group">
+                            <md-outlined-text-field label="GITHUB_TOKEN" type="password" name="github_token" id="github_token">
+                                <span slot="leading-icon" class="material-symbols-outlined">vpn_key</span>
+                            </md-outlined-text-field>
+                            <div style="margin-top: 12px; display: flex; gap: 12px; align-items: center;">
+                                <md-outlined-button type="button" onclick="verifyToken()" id="verifyBtn">
+                                    <span slot="icon" class="material-symbols-outlined">verified_user</span>
+                                    验证Token
+                                </md-outlined-button>
+                                <div id="tokenStatus"></div>
+                            </div>
+                        </div>
+                        <div id="githubUserInfo" style="display: none; margin-bottom: 24px; padding: 16px; border-radius: var(--md-sys-shape-corner-medium); background: var(--md-sys-color-primary-container); color: var(--md-sys-color-on-primary-container);">
+                            <div style="display: flex; align-items: center; gap: 16px;">
+                                <img id="githubAvatar" src="" alt="Avatar" style="width: 48px; height: 48px; border-radius: 50%;">
+                                <div>
+                                    <div id="githubName" style="font-weight: 600; font-size: 16px;"></div>
+                                    <div id="githubUsername" style="font-size: 14px; opacity: 0.8;"></div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <md-outlined-text-field label="GITHUB_OWNER" name="github_owner" id="github_owner">
+                                <span slot="leading-icon" class="material-symbols-outlined">account_circle</span>
+                            </md-outlined-text-field>
+                        </div>
+                        <div class="form-group">
+                            <md-outlined-text-field label="GITHUB_REPO" name="github_repo" id="github_repo">
+                                <span slot="leading-icon" class="material-symbols-outlined">folder</span>
+                            </md-outlined-text-field>
+                        </div>
+                        <div class="form-group">
+                            <md-outlined-text-field label="GITHUB_BRANCH" name="github_branch" id="github_branch" value="main">
+                                <span slot="leading-icon" class="material-symbols-outlined">call_split</span>
+                            </md-outlined-text-field>
+                        </div>
+                    </div>
+
+                    <div class="form-section">
+                        <h2 class="section-title">
+                            <span class="material-symbols-outlined">route</span>
+                            路径配置
+                        </h2>
+                        <div id="pathList" class="path-list"></div>
+                        <md-outlined-button type="button" class="add-path-btn" onclick="addPathRow()">
+                            <span slot="icon" class="material-symbols-outlined">add</span>
+                            添加路径
+                        </md-outlined-button>
+                    </div>
+
+                    <div class="form-actions">
+                        <md-outlined-button type="button" onclick="window.location.href='/';">
+                            取消
+                        </md-outlined-button>
+                        <md-filled-button type="submit" id="saveBtn">
+                            <span slot="icon" class="material-symbols-outlined">save</span>
+                            保存配置
+                        </md-filled-button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <script>
+    ${getMessageHelper()}
+    ${getDynamicColorScript()}
+
+        let pathCounter = 0;
+
+        function createPathRow(index, pathValue = '', pathName = '') {
+            const div = document.createElement('div');
+            div.className = 'path-item';
+            div.id = 'path_' + index;
+            div.innerHTML = 
+                '<md-outlined-text-field label="路径值" name="path_' + index + '" value="' + escapeHtml(pathValue) + '">' +
+                    '<span slot="leading-icon" class="material-symbols-outlined">folder_open</span>' +
+                '</md-outlined-text-field>' +
+                '<md-outlined-text-field label="显示名称" name="pathname_' + index + '" value="' + escapeHtml(pathName) + '" style="flex: 0.8;">' +
+                    '<span slot="leading-icon" class="material-symbols-outlined">label</span>' +
+                '</md-outlined-text-field>' +
+                '<md-icon-button class="delete-btn" onclick="removePathRow(' + index + ')">' +
+                    '<md-icon>delete</md-icon>' +
+                '</md-icon-button>';
+            return div;
+        }
+
+        function addPathRow(pathValue = '', pathName = '') {
+            pathCounter++;
+            const container = document.getElementById('pathList');
+            const row = createPathRow(pathCounter, pathValue, pathName);
+            container.appendChild(row);
+        }
+
+        function removePathRow(index) {
+            const row = document.getElementById('path_' + index);
+            if (row) {
+                row.remove();
+            }
+        }
+
+        function escapeHtml(str) {
+            if (!str) return '';
+            return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        }
+
+        function loadConfig() {
+            fetch('/api/config')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.error) {
+                        showMessage('加载配置失败: ' + data.error, true);
+                        return;
+                    }
+                    if (data.config) {
+                        document.getElementById('github_token').value = data.config.GITHUB_TOKEN || '';
+                        document.getElementById('github_owner').value = data.config.GITHUB_OWNER || '';
+                        document.getElementById('github_repo').value = data.config.GITHUB_REPO || '';
+                        document.getElementById('github_branch').value = data.config.GITHUB_BRANCH || 'main';
+                        
+                        if (data.config.paths && data.config.paths.length > 0) {
+                            data.config.paths.forEach(function(p) {
+                                addPathRow(p.path, p.name);
+                            });
+                        } else {
+                            addPathRow('', '');
+                        }
+                    } else {
+                        addPathRow('', '');
+                    }
+                })
+                .catch(error => {
+                    console.error('加载配置失败:', error);
+                    showMessage('加载配置失败: ' + error.message, true);
+                    addPathRow('', '');
+                });
+        }
+
+        function verifyToken() {
+            const token = document.getElementById('github_token').value;
+            if (!token) {
+                document.getElementById('tokenStatus').innerHTML = '<span style="color: var(--md-sys-color-error);">请先输入Token</span>';
+                return;
+            }
+            
+            const verifyBtn = document.getElementById('verifyBtn');
+            verifyBtn.disabled = true;
+            verifyBtn.innerHTML = '<span slot="icon" class="material-symbols-outlined">hourglass_empty</span>验证中...';
+            
+            const formData = new FormData();
+            formData.append('token', token);
+            
+            fetch('/api/verify-token', {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => response.json())
+            .then(data => {
+                verifyBtn.disabled = false;
+                verifyBtn.innerHTML = '<span slot="icon" class="material-symbols-outlined">verified_user</span>验证Token';
+                
+                if (data.valid) {
+                    document.getElementById('tokenStatus').innerHTML = '<span style="color: var(--md-sys-color-primary);">Token有效</span>';
+                    document.getElementById('githubAvatar').src = data.avatar;
+                    document.getElementById('githubName').textContent = data.name;
+                    document.getElementById('githubUsername').textContent = '@' + data.username;
+                    document.getElementById('githubUserInfo').style.display = 'block';
+                    
+                    // 自动填充owner
+                    if (!document.getElementById('github_owner').value) {
+                        document.getElementById('github_owner').value = data.username;
+                    }
+                } else {
+                    document.getElementById('tokenStatus').innerHTML = '<span style="color: var(--md-sys-color-error);"> ' + (data.error || 'Token无效') + '</span>';
+                    document.getElementById('githubUserInfo').style.display = 'none';
+                }
+            })
+            .catch(error => {
+                verifyBtn.disabled = false;
+                verifyBtn.innerHTML = '<span slot="icon" class="material-symbols-outlined">verified_user</span>验证Token';
+                document.getElementById('tokenStatus').innerHTML = '<span style="color: var(--md-sys-color-error);">验证失败: ' + error.message + '</span>';
+            });
+        }
+
+        document.getElementById('settingsForm').addEventListener('submit', function(e) {
+            e.preventDefault();
+
+            const saveBtn = document.getElementById('saveBtn');
+            saveBtn.disabled = true;
+            saveBtn.innerHTML = '<span slot="icon" class="material-symbols-outlined">save</span>保存中...';
+
+            const formData = new FormData(this);
+
+            fetch('/api/config', {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => response.json())
+            .then(data => {
+                saveBtn.disabled = false;
+                saveBtn.innerHTML = '<span slot="icon" class="material-symbols-outlined">save</span>保存配置';
+
+                const messageArea = document.getElementById('messageArea');
+                if (data.success) {
+                    messageArea.innerHTML = '<div class="success-message">' + data.message + '</div>';
+                    setTimeout(() => { messageArea.innerHTML = ''; }, 5000);
+                } else {
+                    messageArea.innerHTML = '<div class="error-message">' + (data.error || '保存失败') + '</div>';
+                }
+            })
+            .catch(error => {
+                console.error('保存配置失败:', error);
+                saveBtn.disabled = false;
+                saveBtn.innerHTML = '<span slot="icon" class="material-symbols-outlined">save</span>保存配置';
+                
+                const messageArea = document.getElementById('messageArea');
+                messageArea.innerHTML = '<div class="error-message">保存配置失败: ' + error.message + '</div>';
+            });
+        });
+
+        window.onload = function() {
+            restoreThemeColor();
+            loadConfig();
+        };
+    </script>
+</body>
+</html>`;
+}
+
+// 配置获取API处理函数
+async function handleGetConfig(request, env) {
+    const username = await verifySession(request, env);
+    if (!username) return new Response(JSON.stringify({ error: '未认证' }), { status: 401, headers: { 'Content-Type': 'application/json' } });
+    
+    try {
+        const configStr = await env.KV.get('config:' + username);
+        if (!configStr) {
+            return new Response(JSON.stringify({ config: null }), { headers: { 'Content-Type': 'application/json' } });
+        }
+        
+        const encryptedData = JSON.parse(configStr);
+        const config = await decryptConfig(encryptedData);
+        
+        return new Response(JSON.stringify({ config: config }), { headers: { 'Content-Type': 'application/json' } });
+    } catch (error) {
+        console.error('获取配置错误:', error);
+        return new Response(JSON.stringify({ error: '获取配置失败' }), { status: 500, headers: { 'Content-Type': 'application/json' } });
+    }
+}
+
+// 配置保存API处理函数
+async function handleSaveConfig(request, env) {
+    const username = await verifySession(request, env);
+    if (!username) return new Response(JSON.stringify({ error: '未认证' }), { status: 401, headers: { 'Content-Type': 'application/json' } });
+    
+    if (request.method !== 'POST') return new Response('Method Not Allowed', { status: 405 });
+    
+    try {
+        const formData = await request.formData();
+        
+        // 收集基本配置
+        const config = {
+            GITHUB_TOKEN: formData.get('github_token') || '',
+            GITHUB_OWNER: formData.get('github_owner') || '',
+            GITHUB_REPO: formData.get('github_repo') || '',
+            GITHUB_BRANCH: formData.get('github_branch') || 'main',
+            paths: []
+        };
+        
+        // 收集PATH配置
+        let i = 1;
+        while (formData.get('path_' + i)) {
+            config.paths.push({
+                path: formData.get('path_' + i),
+                name: formData.get('pathname_' + i) || ('路径' + i)
+            });
+            i++;
+        }
+        
+        // 加密存储
+        const encrypted = await encryptConfig(config);
+        await env.KV.put('config:' + username, JSON.stringify(encrypted));
+        
+        return new Response(JSON.stringify({ success: true, message: '配置保存成功' }), { headers: { 'Content-Type': 'application/json' } });
+    } catch (error) {
+        console.error('保存配置错误:', error);
+        return new Response(JSON.stringify({ error: '保存配置失败: ' + error.message }), { status: 500, headers: { 'Content-Type': 'application/json' } });
+    }
+}
+
+// 验证GitHub Token API
+async function handleVerifyToken(request, env) {
+    if (request.method !== 'POST') {
+        return new Response('Method Not Allowed', { status: 405 });
+    }
+    
+    try {
+        const formData = await request.formData();
+        const token = formData.get('token');
+        
+        if (!token) {
+            return new Response(JSON.stringify({ error: '请提供Token' }), { status: 400, headers: { 'Content-Type': 'application/json' } });
+        }
+        
+        // 调用GitHub API验证Token
+        const response = await fetch('https://api.github.com/user', {
+            headers: {
+                'Authorization': `token ${token}`,
+                'Accept': 'application/vnd.github.v3+json',
+                'User-Agent': 'Cloudflare-Worker'
+            }
+        });
+        
+        if (!response.ok) {
+            return new Response(JSON.stringify({ error: 'Token无效或已过期', valid: false }), { 
+                status: 200, 
+                headers: { 'Content-Type': 'application/json' } 
+            });
+        }
+        
+        const user = await response.json();
+        
+        return new Response(JSON.stringify({
+            valid: true,
+            username: user.login,
+            avatar: user.avatar_url,
+            name: user.name || user.login,
+            bio: user.bio || ''
+        }), { 
+            headers: { 'Content-Type': 'application/json' } 
+        });
+        
+    } catch (error) {
+        console.error('验证Token错误:', error);
+        return new Response(JSON.stringify({ error: '验证失败: ' + error.message }), { 
+            status: 500, 
+            headers: { 'Content-Type': 'application/json' } 
+        });
+    }
+}
+
 // 路径选择界面
 function getPathSelectionHTML(pathConfigs) {
   return `
@@ -1203,8 +2088,11 @@ function getPathSelectionHTML(pathConfigs) {
         .card-body { padding: 40px; }
         .path-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
             gap: 24px;
+            justify-content: center;
+            max-width: 1200px;
+            margin: 0 auto;
         }
         .path-card {
             background: var(--md-sys-color-surface-container-low);
@@ -1218,6 +2106,10 @@ function getPathSelectionHTML(pathConfigs) {
             flex-direction: column;
             position: relative;
             overflow: hidden;
+            max-width: 350px;
+            max-height: 350px;
+            justify-self: center;
+            width: 100%;
         }
         .path-card::before {
             content: '';
@@ -1345,6 +2237,10 @@ function getPathSelectionHTML(pathConfigs) {
                         <span slot="icon" class="material-symbols-outlined">palette</span>
                         主题色
                     </md-elevated-button>
+                    <md-elevated-button onclick="window.location.href='/settings'">
+                        <span slot="icon" class="material-symbols-outlined">settings</span>
+                        设置
+                    </md-elevated-button>
                     <md-elevated-button onclick="logout()">
                         <span slot="icon" class="material-symbols-outlined">logout</span>
                         登出
@@ -1440,7 +2336,7 @@ function getPathSelectionHTML(pathConfigs) {
 }
 
 // 文件管理界面
-function getFileManagerHTML(pathConfig, pathConfigs, env) {
+function getFileManagerHTML(pathConfig, pathConfigs) {
   const apiBase = '/api/files/' + pathConfig.name;
   
   return `
@@ -2185,8 +3081,7 @@ function getFileManagerHTML(pathConfig, pathConfigs, env) {
 }
 
 // 文件编辑页面
-function getEditFileHTML(filename, sha, filePath, env) {
-  const pathConfigs = getPathConfig(env);
+function getEditFileHTML(filename, sha, filePath, pathConfigs) {
   let pathName = 'default';
   let bestMatch = '';
   
@@ -2396,11 +3291,10 @@ function getEditFileHTML(filename, sha, filePath, env) {
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
-    const pathConfigs = getPathConfig(env);
     
     // 登录页面（不需要认证）
     if (url.pathname === '/login') {
-      return new Response(getLoginHTML(), {
+      return new Response(getLoginHTML(''), {
         headers: { 'Content-Type': 'text/html; charset=utf-8' }
       });
     }
@@ -2410,9 +3304,24 @@ export default {
       return await handleLogin(request, env);
     }
     
+    // 注册页面（不需要认证）
+    if (url.pathname === '/register') {
+      return new Response(getRegisterHTML(''), { headers: { 'Content-Type': 'text/html; charset=utf-8' } });
+    }
+
+    // 注册API（不需要认证）
+    if (url.pathname === '/api/register') {
+      return await handleRegister(request, env);
+    }
+    
+    // 验证GitHub Token API（不需要认证）
+    if (url.pathname === '/api/verify-token') {
+      return handleVerifyToken(request, env);
+    }
+    
     // 登出API（需要认证）
     if (url.pathname === '/api/logout') {
-      if (!verifySession(request, env)) {
+      if (!await verifySession(request, env)) {
         return new Response(null, {
           status: 302,
           headers: { 'Location': '/login' }
@@ -2422,11 +3331,43 @@ export default {
     }
     
     // 检查会话认证（除了登录相关页面）
-    if (!verifySession(request, env)) {
+    let currentUsername = await verifySession(request, env);
+    if (!currentUsername) {
       return new Response(null, {
         status: 302,
         headers: { 'Location': '/login' }
       });
+    }
+    
+    // 加载用户配置
+    let userConfig = await getUserConfig(request, env);
+    
+    // 首次登录无配置，引导到设置页
+    if (!userConfig && url.pathname !== '/settings' && !url.pathname.startsWith('/api/config')) {
+      return new Response(null, { status: 302, headers: { 'Location': '/settings?first=1' } });
+    }
+    
+    // 提供默认空配置给设置页面
+    if (!userConfig) {
+      userConfig = { GITHUB_TOKEN: '', GITHUB_OWNER: '', GITHUB_REPO: '', GITHUB_BRANCH: 'main', paths: [] };
+    }
+    
+    const pathConfigs = getPathConfig(userConfig);
+    const githubConfig = getGithubConfig(userConfig);
+    
+    // 设置页面
+    if (url.pathname === '/settings') {
+      const isFirst = url.searchParams.get('first') === '1';
+      return new Response(getSettingsHTML(currentUsername, '', isFirst), { headers: { 'Content-Type': 'text/html; charset=utf-8' } });
+    }
+    
+    // 配置API
+    if (url.pathname === '/api/config') {
+      if (request.method === 'GET') {
+        return handleGetConfig(request, env);
+      } else if (request.method === 'POST') {
+        return handleSaveConfig(request, env);
+      }
     }
     
     // 处理根路径，显示路径选择界面
@@ -2443,7 +3384,7 @@ export default {
       const pathConfig = pathConfigs.find(p => p.name === pathName);
       
       if (pathConfig) {
-        return new Response(getFileManagerHTML(pathConfig, pathConfigs, env), {
+        return new Response(getFileManagerHTML(pathConfig, pathConfigs), {
           headers: { 'Content-Type': 'text/html; charset=utf-8' }
         });
       }
@@ -2457,13 +3398,13 @@ export default {
       
       if (pathConfig) {
         if (request.method === 'GET') {
-          return await getFiles(env, pathConfig);
+          return await getFiles(githubConfig, pathConfig);
         } else if (request.method === 'POST') {
-          return await uploadFile(request, env, pathConfig);
+          return await uploadFile(request, githubConfig, pathConfig);
         } else if (request.method === 'DELETE') {
-          return await deleteFile(request, env, pathConfig);
+          return await deleteFile(request, githubConfig, pathConfig);
         } else if (request.method === 'PUT') {
-          return await updateFile(request, env, pathConfig);
+          return await updateFile(request, githubConfig, pathConfig);
         }
       }
     }
@@ -2478,14 +3419,14 @@ export default {
         return new Response('缺少必要参数', { status: 400 });
       }
       
-      return new Response(getEditFileHTML(filename, sha, filePath, env), {
+      return new Response(getEditFileHTML(filename, sha, filePath, pathConfigs), {
         headers: { 'Content-Type': 'text/html; charset=utf-8' }
       });
     }
     
     // 处理下载代理请求
     if (url.pathname === '/api/download') {
-      return await downloadProxy(request, env);
+      return await downloadProxy(request, githubConfig);
     }
     
     return new Response('Not Found', { status: 404 });
