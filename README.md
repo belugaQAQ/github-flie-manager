@@ -4,8 +4,8 @@
 
 一款基于 Cloudflare Worker 的 GitHub 文件管理工具，支持多用户独立配置管理。
 
-![.NET 版本](https://img.shields.io/badge/Cloudflare-Workers-orange?style=flat-square)
-![GitHub Repo size](https://img.shields.io/github/repo-size/ClassIsland/ClassIsland?style=flat-square)
+![CF](https://img.shields.io/badge/Cloudflare-Workers-orange?style=flat-square)
+![GitHub Repo size](https://img.shields.io/github/repo-size/belugaQAQ/github-flie-manager?style=flat-square)
 
 </div>
 
@@ -48,6 +48,7 @@
 
 ```bash
 wrangler kv namespace create GHFM_KV
+wrangler kv namespace create GHFM_KV --preview
 ```
 
 **2. 配置 wrangler.toml**
@@ -124,11 +125,6 @@ npm run deploy
 - HttpOnly Cookie 防止 XSS 窃取
 - 会话 1 小时自动过期
 
-### CSRF 防护
-- 每个表单生成唯一 CSRF Token
-- Token 使用后立即删除
-- Token 1 小时自动过期
-
 ### 速率限制
 - 登录/注册：15分钟内最多5次尝试
 - 基于 Cloudflare 真实 IP 识别
@@ -145,7 +141,6 @@ npm run deploy
 | `user:{username}` | 用户账户（密码哈希、创建时间） |
 | `session:{token}` | 会话数据（TTL=1h） |
 | `config:{username}` | 用户配置（AES-GCM 加密） |
-| `csrf:{token}` | CSRF Token |
 | `login:{ip}` | 登录速率限制 |
 
 ## GitHub Token 权限
@@ -169,10 +164,6 @@ npm run deploy
 ### KV 数据不持久
 - 本地开发确保使用 `--local --persist` 标志
 - 重启开发服务器后检查数据是否保留
-
-### CSRF 验证失败
-- 刷新页面重新获取 Token
-- 清除浏览器缓存
 
 ## 技术栈
 
